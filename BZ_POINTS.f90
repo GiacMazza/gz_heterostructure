@@ -464,30 +464,21 @@ CONTAINS
     real(8)   :: beta
 
     beta = 1.d+3
-
     if(ek.gt.0.1/beta) then
        f = 0.d0
     else
-
        if(ek.lt.-0.1/beta) then
-
           f=1.d0
-
        else
-
           f = 1.d0/(exp(beta*ek)+1.d0)
-
        end if
-
     end if
-
-!!$
-!!$      if(ek.gt.0.d0) then
-!!$         f = 0.d0
-!!$      else
-!!$         f=1.d0
-!!$
-!!$      end if
+    !
+    if(ek.gt.0.d0) then
+       f=0.d0
+    else
+       f=1.d0
+    end if
     ! f = 1.d0/(exp(beta*ek)+1.d0)
 
     return

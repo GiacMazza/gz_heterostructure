@@ -408,7 +408,8 @@ CONTAINS
          case("linear")
             do iSlab=1,L
                if(t_finer(it_finer).gt.cut_time.and.iSlab.eq.1) then
-                  e_loc(iSlab,it_finer) = -(muL(it_finer) + (muR(it_finer) - muL(it_finer) )*dble(iSlab-1)/dble(L-1))
+                  !e_loc(iSlab,it_finer) = -(muL(it_finer) + (muR(it_finer) - muL(it_finer) )*dble(iSlab-1)/dble(L-1))
+                  e_loc(iSlab,it_finer) = -(muL(it_finer) - muR(it_finer))/dble(L+1)/2.d0*dble(L+1-2*iSlab)
                else
                   e_loc(iSlab,it_finer) = 0.d0
                end if
@@ -564,7 +565,8 @@ CONTAINS
             do iSlab=1,L
                e_loc(iSlab,it_finer) = 0.d0
                if(t_finer(it_finer).gt.time_bias) then
-                  e_loc(iSlab,it_finer) = -(muL(it_finer) + (muR(it_finer) - muL(it_finer) )*dble(iSlab-1)/dble(L-1))
+                  !e_loc(iSlab,it_finer) = -(muL(it_finer) + (muR(it_finer) - muL(it_finer) )*dble(iSlab-1)/dble(L-1))
+                  e_loc(iSlab,it_finer) = -(muL(it_finer) - muR(it_finer))/dble(L+1)/2.d0*dble(L+1-2*iSlab)
                else
                   e_loc(iSlab,it_finer) = 0.d0
                end if
@@ -672,7 +674,8 @@ CONTAINS
             do iSlab=1,L
                e_loc(iSlab,it_finer) = 0.d0
                if(t_finer(it_finer).gt.time_bias) then
-                  e_loc(iSlab,it_finer) = -(muL(it_finer) + (muR(it_finer) - muL(it_finer) )*dble(iSlab-1)/dble(L-1))
+                  !e_loc(iSlab,it_finer) = -(muL(it_finer) + (muR(it_finer) - muL(it_finer) )*dble(iSlab-1)/dble(L-1))
+                  e_loc(iSlab,it_finer) = -(muL(it_finer) - muR(it_finer))/dble(L+1)/2.d0*dble(L+1-2*iSlab)
                else
                   e_loc(iSlab,it_finer) = 0.d0
                end if

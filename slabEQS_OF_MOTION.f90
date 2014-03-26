@@ -1168,12 +1168,14 @@ CONTAINS
           r = 1.d0
        end if
     else
-       r = 1.d0
+       r = 0.2d0
     end if
 
     select case(lead_type)
     case('3d_tb')
        vkp = -1.d0*sqrt(2.d0/dble(Nk_orth+1))*sin(kp)*vL
+    case('cubic')
+       vkp=1.d0/sqrt(dble(Nk_orth))
     case('generic_bath')
        !+- insert here the possibility of different baths -+!
        select case(i_bath)
