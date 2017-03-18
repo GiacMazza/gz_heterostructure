@@ -38,6 +38,8 @@ MODULE global
 
   !hoppings (tslab is the unit of energy)
   real(8)                                     :: t_lead !
+  real(8)                                     :: t_perp !
+  real(8),dimension(:,:),allocatable                                     :: Hslab !
   logical                                     :: Vhyb   !Hybridization potential
   real(8)                                     :: vL,vR
   real(8),dimension(:,:),allocatable          :: vk_L,vk_R
@@ -127,6 +129,7 @@ MODULE global
        Slab                , &
        Temp                , &
        t_lead              , &
+       t_perp              , &
        Vhyb                , &
        U                   , &
        nx_grid             , &
@@ -165,8 +168,9 @@ CONTAINS
   !+---------------------+!
   !    READ INPUT DATA    !
   !+---------------------+!
-  subroutine read_input
+  subroutine read_input(INPUTunit)
     implicit none
+    character(len=*) :: INPUTunit
     logical :: control
     integer :: i,iU
 
@@ -179,6 +183,7 @@ CONTAINS
     Nk_orth             = 150
     Vhyb                = .false.
     t_lead              = 1.d0
+    t_perp              = 0.5d0
     off_set             = .false.
     pbc                 = .false.
     start_gz            = 0
@@ -225,47 +230,91 @@ CONTAINS
        stop
     endif
 
-    call parse_cmd_variable(Slab                ,"L")
-    call parse_cmd_variable(U                   ,"U")         
-    call parse_cmd_variable(Temp                ,"TEMP")         
-    call parse_cmd_variable(Nx_grid             ,"NX_GRID")
-    call parse_cmd_variable(Nk_orth             ,"NK_ORTH")       
-    call parse_cmd_variable(off_set             ,"OFF_SET")
-    call parse_cmd_variable(pbc                 ,"PBC")
-    call parse_cmd_variable(start_gz            ,"START_GZ")
-    call parse_cmd_variable(n_max               ,"N_MAX")
-    call parse_cmd_variable(conv_treshold       ,"CONV_TRESHOLD")
-    call parse_cmd_variable(dt                  ,"DT")
-    call parse_cmd_variable(Nt                  ,"NT")    
-    call parse_cmd_variable(mrk                 ,"MRK")
-    call parse_cmd_variable(vL                  ,"VL")       
-    call parse_cmd_variable(vR                  ,"VR")        
-    call parse_cmd_variable(t_lead              ,"T_LEAD")        
-    call parse_cmd_variable(Vhyb                ,"VHYB")        
-    call parse_cmd_variable(chem_shift          ,"CHEM_SHIFT")
-    call parse_cmd_variable(left                ,"LEFT")
-    call parse_cmd_variable(right               ,"RIGHT")
-    call parse_cmd_variable(init                ,"INIT")
-    call parse_cmd_variable(W_bath              ,"W_BATH")
-    call parse_cmd_variable(i_bath              ,"BATH_TYPE")
-    call parse_cmd_variable(kleads              ,"kLEADS")
-    call parse_cmd_variable(real_space          ,"REAL_SPACE")
-    call parse_cmd_variable(Gamma               ,"GAMMA")
-    call parse_cmd_variable(alpha_electrostatic ,"ALPHA_ELECTROSTATIC")  
-    call parse_cmd_variable(ramp_time           ,"RAMP")  
-    call parse_cmd_variable(time_bias           ,"TIME_BIAS")  
-    call parse_cmd_variable(linear_field        ,"LINEAR_FIELD")  
-    call parse_cmd_variable(inner_field_type    ,"INNER_FIELD")  
-    call parse_cmd_variable(lead_chem           ,"LEAD_CHEM")  
-    call parse_cmd_variable(lead_type           ,"LEAD_TYPE")  
-    call parse_cmd_variable(dop_layer           ,"DOP_LAYER")  
+!,INPUTunit,default=1)
+    
 
-    call parse_cmd_variable(beta_left           ,"BETA_L")  
-    call parse_cmd_variable(beta_right           ,"BETA_R")  
 
-    open(unit=10,file="used_input.out")
-    write(10,nml=variables)
-    close(10)
+    call parse_input_variable(Slab                ,"L",INPUTunit,default=Slab)
+    call parse_input_variable(U                   ,"U",INPUTunit,default=U)         
+    call parse_input_variable(Temp                ,"TEMP",INPUTunit,default=Temp)         
+    call parse_input_variable(Nx_grid             ,"NX_GRID",INPUTunit,default=Nx_grid)
+    call parse_input_variable(Nk_orth             ,"NK_ORTH",INPUTunit,default=Nk_orth)       
+    call parse_input_variable(off_set             ,"OFF_SET",INPUTunit,default=off_set)
+    call parse_input_variable(pbc                 ,"PBC",INPUTunit,default=pbc)
+    call parse_input_variable(start_gz            ,"START_GZ",INPUTunit,default=start_gz)
+    call parse_input_variable(n_max               ,"N_MAX",INPUTunit,default=n_max)
+    call parse_input_variable(conv_treshold       ,"CONV_TRESHOLD",INPUTunit,default=conv_treshold)
+    call parse_input_variable(dt                  ,"DT",INPUTunit,default=dt)
+    call parse_input_variable(Nt                  ,"NT",INPUTunit,default=Nt)    
+    call parse_input_variable(mrk                 ,"MRK",INPUTunit,default=mrk)
+    call parse_input_variable(vL                  ,"VL",INPUTunit,default=vL)       
+    call parse_input_variable(vR                  ,"VR",INPUTunit,default=vR)        
+    call parse_input_variable(t_lead              ,"T_LEAD",INPUTunit,default=t_lead)        
+    call parse_input_variable(t_perp              ,"T_PERP",INPUTunit,default=t_perp)        
+    call parse_input_variable(Vhyb                ,"VHYB",INPUTunit,default=Vhyb)        
+    call parse_input_variable(chem_shift          ,"CHEM_SHIFT",INPUTunit,default=chem_shift)
+    call parse_input_variable(left                ,"LEFT",INPUTunit,default=left)
+    call parse_input_variable(right               ,"RIGHT",INPUTunit,default=right)
+    call parse_input_variable(init                ,"INIT",INPUTunit,default=init)
+    call parse_input_variable(W_bath              ,"W_BATH",INPUTunit,default=W_bath)
+    call parse_input_variable(i_bath              ,"BATH_TYPE",INPUTunit,default=i_bath)
+    call parse_input_variable(kleads              ,"kLEADS",INPUTunit,default=kleads)
+    call parse_input_variable(real_space          ,"REAL_SPACE",INPUTunit,default=real_space)
+    call parse_input_variable(Gamma               ,"GAMMA",INPUTunit,default=Gamma)
+    call parse_input_variable(alpha_electrostatic ,"ALPHA_ELECTROSTATIC",INPUTunit,default=alpha_electrostatic)  
+    call parse_input_variable(ramp_time           ,"RAMP",INPUTunit,default=ramp_time)  
+    call parse_input_variable(time_bias           ,"TIME_BIAS",INPUTunit,default=time_bias)  
+    call parse_input_variable(linear_field        ,"LINEAR_FIELD",INPUTunit,default=linear_field)  
+    call parse_input_variable(inner_field_type    ,"INNER_FIELD",INPUTunit,default=inner_field_type)  
+    call parse_input_variable(lead_chem           ,"LEAD_CHEM",INPUTunit,default=lead_chem)  
+    call parse_input_variable(lead_type           ,"LEAD_TYPE",INPUTunit,default=lead_type)  
+    call parse_input_variable(dop_layer           ,"DOP_LAYER",INPUTunit,default=dop_layer)  
+    call parse_input_variable(beta_left           ,"BETA_L",INPUTunit,default=1000.d0)  
+    call parse_input_variable(beta_right           ,"BETA_R",INPUTunit,default=1000.d0)  
+
+
+    ! call parse_cmd_variable(Slab                ,"L")
+    ! call parse_cmd_variable(U                   ,"U")         
+    ! call parse_cmd_variable(Temp                ,"TEMP")         
+    ! call parse_cmd_variable(Nx_grid             ,"NX_GRID")
+    ! call parse_cmd_variable(Nk_orth             ,"NK_ORTH")       
+    ! call parse_cmd_variable(off_set             ,"OFF_SET")
+    ! call parse_cmd_variable(pbc                 ,"PBC")
+    ! call parse_cmd_variable(start_gz            ,"START_GZ")
+    ! call parse_cmd_variable(n_max               ,"N_MAX")
+    ! call parse_cmd_variable(conv_treshold       ,"CONV_TRESHOLD")
+    ! call parse_cmd_variable(dt                  ,"DT")
+    ! call parse_cmd_variable(Nt                  ,"NT")    
+    ! call parse_cmd_variable(mrk                 ,"MRK")
+    ! call parse_cmd_variable(vL                  ,"VL")       
+    ! call parse_cmd_variable(vR                  ,"VR")        
+    ! call parse_cmd_variable(t_lead              ,"T_LEAD")        
+    ! call parse_cmd_variable(t_perp              ,"T_PERP")        
+    ! call parse_cmd_variable(Vhyb                ,"VHYB")        
+    ! call parse_cmd_variable(chem_shift          ,"CHEM_SHIFT")
+    ! call parse_cmd_variable(left                ,"LEFT")
+    ! call parse_cmd_variable(right               ,"RIGHT")
+    ! call parse_cmd_variable(init                ,"INIT")
+    ! call parse_cmd_variable(W_bath              ,"W_BATH")
+    ! call parse_cmd_variable(i_bath              ,"BATH_TYPE")
+    ! call parse_cmd_variable(kleads              ,"kLEADS")
+    ! call parse_cmd_variable(real_space          ,"REAL_SPACE")
+    ! call parse_cmd_variable(Gamma               ,"GAMMA")
+    ! call parse_cmd_variable(alpha_electrostatic ,"ALPHA_ELECTROSTATIC")  
+    ! call parse_cmd_variable(ramp_time           ,"RAMP")  
+    ! call parse_cmd_variable(time_bias           ,"TIME_BIAS")  
+    ! call parse_cmd_variable(linear_field        ,"LINEAR_FIELD")  
+    ! call parse_cmd_variable(inner_field_type    ,"INNER_FIELD")  
+    ! call parse_cmd_variable(lead_chem           ,"LEAD_CHEM")  
+    ! call parse_cmd_variable(lead_type           ,"LEAD_TYPE")  
+    ! call parse_cmd_variable(dop_layer           ,"DOP_LAYER")  
+
+    ! call parse_cmd_variable(beta_left           ,"BETA_L")  
+    ! call parse_cmd_variable(beta_right           ,"BETA_R")  
+
+    ! open(unit=10,file="used_input.out")
+    ! write(10,nml=variables)
+    ! close(10)
 
     beta = 1.d0/Temp
 
@@ -281,24 +330,24 @@ CONTAINS
 
     !Nk_tot = nx_grid*(nx_grid+1)/2
 
-    if(.not.Vhyb) then
-       L = Slab
-       !allocate(Uz(L),Gslab_equ(Nk_tot,L,L),eqPhi(L))
-       allocate(Uz(L),eqPhi(L))
-       Uz = U
-       Uz(1) = U*1.d0
-    else
-       if(.not.real_space) Nt=0
-       L = Slab + 2*Nk_orth
-       !allocate(Uz(L),Gslab_equ(Nk_tot,L,L),eqPhi(L))
-       allocate(Uz(L),eqPhi(L))
-       Uz(1:Nk_orth) = 0.d0
-       Uz(Nk_orth+1:Nk_orth+Slab) = U
-       Uz(Nk_orth+Slab+1:L) = 0.d0
-       do ik0=1,L
-          write(*,*) Uz(ik0),U
-       end do
-    end if
+    ! if(.not.Vhyb) then
+    !    L = Slab
+    !    !allocate(Uz(L),Gslab_equ(Nk_tot,L,L),eqPhi(L))
+    !    allocate(Uz(L))
+    !    Uz = U
+    !    Uz(1) = U*1.d0
+    ! else
+    !    if(.not.real_space) Nt=0
+    !    L = Slab + 2*Nk_orth
+    !    !allocate(Uz(L),Gslab_equ(Nk_tot,L,L),eqPhi(L))
+    !    allocate(Uz(L))
+    !    Uz(1:Nk_orth) = 0.d0
+    !    Uz(Nk_orth+1:Nk_orth+Slab) = U
+    !    Uz(Nk_orth+Slab+1:L) = 0.d0
+    !    do ik0=1,L
+    !       write(*,*) Uz(ik0),U
+    !    end do
+    ! end if
     
     eta_bath=0.d0
 

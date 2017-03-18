@@ -9,6 +9,7 @@ PROGRAM GZ_SLAB_TEMP
   real(8),allocatable :: test_dop(:)
   integer :: iL,ik
   real(8) :: chem_pulse
+
   
   call read_input
 
@@ -52,6 +53,27 @@ PROGRAM GZ_SLAB_TEMP
      mu_pulseR=-chem_pulse*0.5d0
   end if
   
+
+  allocate(Hslab(L,L));  Hslab=0.d0
+  do iL=1,L/2-1
+     Hslab(iL,iL+1) = -t_perp
+     Hslab(iL+1,iL) = -t_perp
+  end do
+  do iL=L/2+1,L-1
+     Hslab(iL,iL+1) = -t_perp
+     Hslab(iL+1,iL) = -t_perp
+  end do
+
+  do iL=1,L
+     Hslab(iL,iL) =1.d0
+  end do
+
+  !
+  ! do iL=1,L-1
+  !    Hslab(iL,iL+1) = -t_perp
+  !    Hslab(iL+1,iL) = -t_perp
+  ! end do  
+  !
   call gz_equilibrium
   
   write(*,*) Nt
