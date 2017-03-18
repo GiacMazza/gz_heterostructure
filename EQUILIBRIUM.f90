@@ -20,6 +20,12 @@ MODULE SLAB_EQU
   real(8)                                     :: hop_ene,hubb_ene
   real(8)                                     :: e_layers,e_orth
 
+  type(gz_projector),dimension(:),allocatable :: opt_phi
+
+  real(8) :: beta_equ
+  real(8) :: beta_neq
+
+
   public :: GZ_equilibrium
     
 CONTAINS
@@ -31,21 +37,33 @@ CONTAINS
   !     -Obtain new GZ projectors                                                 !
   !     -Iterate                                                                  !
   !+-----------------------------------------------------------------------------+!
-  SUBROUTINE GZ_equilibrium
-    integer :: i,j
-    real(8) :: Qstep
+
+  SUBROUTINE GZ_equilibrium(temp_,Gequ,PHIequ)
+    integer :: i,j,ik,iL
+    real(8) :: Qstep,nki,nki_plus
+    real(8),dimension(2),optional :: temp_
     real(8),dimension(:),allocatable :: Zold,test_norm
+    complex(8),dimension(:,:,:),allocatable,optional :: Gequ
+    type(gz_projector),dimension(:),allocatable,optional :: PHIequ
     allocate(R(L),dop(L),Zold(L),test_norm(L))
     allocate(eZ(L),eZL(N),eZR(N))
     allocate(eZnn(L-1),eZnnL(N-1),eZnnR(N-1))
-    allocate(hop_plus(L-1),hop_minus(L-1))
-    
-    eqPhi = GZ_init_half(U)
-    R = GZ_hop (eqPhi)
-    dop = gz_doping(eqPhi)
-    
+    allocate(hop_plus(L-1),hop_minus(L-1))    
+    allocate(opt_phi(L))
+
+    opt_Phi = GZ_init_half(U)
+    R = GZ_hop (opt_Phi)
+    dop = gz_doping(opt_Phi)
+
+    beta_equ=beta
+    if(present(temp_)) then
+       beta_equ=1.d0/temp_(1)
+       beta_neq=1.d0/temp_(2)
+    end if
+
     do i=1,n_max
-       
+
+
        call slater_step
        call projector_step
        call check_convergence(i)
@@ -53,35 +71,82 @@ CONTAINS
        energy = hop_ene + hubb_ene/(1.d0*L)
        write(*,'(A,I4,5f18.10)')'step numr',i, energy,Qstep,hubb_ene/(1.d0*L), &
             hop_ene
-       
+
        if(Qstep.lt.conv_treshold) then
           exit
        end if
-       
-    end do
-    
-    test_norm = gz_normalization(eqPhi)
-    R = GZ_hop (eqPhi)
-    dop = gz_doping(eqPhi)
-    
-    call slater_step(0)
 
-    open(10,file='equ_gz.out')
-    do i=1,L
-       write(10,"(I4,5(F18.10))")  &
-            i                     &
-            ,real(eqPhi(i)%p0)    &
-            ,real(eqPhi(i)%p2)    &
-            ,real(eqPhi(i)%p1)    &
-            , test_norm(i)        &
-            ,ABS(R(i))**2
     end do
+
+    test_norm = gz_normalization(opt_Phi)
+    R = GZ_hop (opt_Phi)
+    dop = gz_doping(opt_Phi)
+
+
+    if(present(Gequ)) then
+       if(allocated(Gequ)) deallocate(Gequ)
+       allocate(Gequ(Nk_tot,L,L))
+       call slater_step(0,Gequ)
+       eZ=0.d0
+       hop_plus=0.d0
+       do iL=1,L
+          do ik=1,Nk_tot
+             nki = 1.d0-Zi*Gequ(ik,iL,iL)
+             eZ(iL) = eZ(iL) + nki*wt(ik)*epsik(ik)
+             if(iL.lt.L) then
+                nki_plus = -Zi*Gequ(ik,iL,iL+1)
+                hop_plus(iL) = hop_plus(iL) + 2.d0*nki_plus*wt(ik)*Hslab(iL,iL+1)
+             end if
+          end do
+       end do
+
+    end if
+    if(present(PHIequ)) then
+       if(allocated(PHIequ)) deallocate(PHIequ)
+       allocate(PHIequ(L))
+       PHIequ(:)%p0 = opt_phi(:)%p0
+       PHIequ(:)%p1 = opt_phi(:)%p1
+       PHIequ(:)%p2 = opt_phi(:)%p2
+    end if
+
+    open(10,file='equ_gz.out',position='append')
+    do i=1,L
+       if(i.lt.L) then
+          write(10,"(I4,20(F18.10))")  &
+               i                     &
+               ,real(opt_Phi(i)%p0)    &
+               ,real(opt_Phi(i)%p2)    &
+               ,real(opt_Phi(i)%p1)    &
+               , test_norm(i)        &
+               ,ABS(R(i))**2        &
+               ,eZ(i) &
+               ,hop_plus(i)
+       else
+          write(10,"(I4,20(F18.10))")  &
+               i                     &
+               ,real(opt_Phi(i)%p0)    &
+               ,real(opt_Phi(i)%p2)    &
+               ,real(opt_Phi(i)%p1)    &
+               , test_norm(i)        &
+               ,ABS(R(i))**2        &
+               ,eZ(i)   
+
+       end if
+    end do
+    write(10,*)
     close(10)
 
-    
+    deallocate(R,dop,Zold,test_norm)
+    deallocate(eZ,eZL,eZR)
+    deallocate(eZnn,eZnnL,eZnnR)
+    deallocate(hop_plus,hop_minus)
+    deallocate(opt_phi)
+
+
 
   CONTAINS
-    
+
+
     SUBROUTINE check_convergence(iter)
       integer, intent(in) :: iter
       integer :: j
@@ -108,8 +173,9 @@ CONTAINS
   !  - average hybridization energy          !
   !  - total hopping energy                  !
   !+----------------------------------------+!
-  SUBROUTINE slater_step(flag_nz)
+  SUBROUTINE slater_step(flag_nz,Gequ)
     integer,intent(in),optional  :: flag_nz
+    complex(8),dimension(Nk_tot,L,L),optional :: Gequ
     integer     :: ix,iy,ik,i,j
     integer     :: i_max!highest occupied state index
     type(vec2D) :: k
@@ -131,7 +197,7 @@ CONTAINS
     call init_to_zero
 
     if(present(flag_nz)) then
-       Gslab_equ = Z0
+       Gequ = Z0
     end if
 
 
@@ -142,41 +208,44 @@ CONTAINS
           nz = nz + nkz   
        end do
     else
-       R_ave = sum(R)/dble(L)
-       if(abs(R_ave).gt.1.d-4) then
-          write(*,*) 'metallic',R_ave
-          do ik=1,Nk_tot
-             call slab_k(ik)            
-             call accumulate_ksum(ik)  
-             call get_equilibriumG(ik)
-             nz = nz +nkz
-          end do
-       else
-          write(*,*) 'insulating',R_ave
-          do ik=1,Nk_tot
-             ek = epsik(ik)
-             H(:,:) = 0.d0
-             do i=1,L
-                H(i,i) =  ek
-                if(i.lt.L) then
-                   H(i,i+1) = -1.d0
-                   H(i+1,i) = -1.d0
-                end if
+
+       if(present(Gequ)) then
+          R_ave = sum(R)/dble(L)
+          if(abs(R_ave).gt.1.d-4) then
+             write(*,*) 'metallic',R_ave
+             do ik=1,Nk_tot
+                call slab_k(ik)            
+                call accumulate_ksum(ik)  
+                call get_equilibriumG(ik,Gequ(ik,:,:))
+                nz = nz +nkz
              end do
-             if(pbc) then
-                H(1,L) = -1.d0
-                H(L,1) = -1.d0
-             end if
-             call matrix_diagonalize(H,w,jobz,uplo)
-             call get_equilibriumG(ik)
-             nkz(:) = 0.d0
-             do i=1,L
-                do j=1,L
-                   nkz(j) = nkz(j) + abs(H(j,i))**2*wt(ik)*fermi(w(i),beta)
+          else
+             write(*,*) 'insulating',R_ave
+             do ik=1,Nk_tot
+                ek = epsik(ik)
+                H(:,:) = 0.d0
+                do i=1,L
+                   H(i,i) =  ek
+                   if(i.lt.L) then
+                      H(i,i+1) = -1.d0
+                      H(i+1,i) = -1.d0
+                   end if
                 end do
+                if(pbc) then
+                   H(1,L) = -1.d0
+                   H(L,1) = -1.d0
+                end if
+                call matrix_diagonalize(H,w,jobz,uplo)
+                call get_equilibriumG(ik,Gequ(ik,:,:))
+                nkz(:) = 0.d0
+                do i=1,L
+                   do j=1,L
+                      nkz(j) = nkz(j) + abs(H(j,i))**2*wt(ik)*fermi(w(i),beta_equ)
+                   end do
+                end do
+                nz = nz + nkz
              end do
-             nz = nz + nkz
-          end do
+          end if
        end if
     end if
 
@@ -237,33 +306,45 @@ CONTAINS
       H(:,:) = 0.d0
       !+-  SLAB  -+!
       do i=1,L
-         H(i,i) =  ek*abs(r(i))**2
-         if(i.lt.L) then
-            H(i,i+1) = -1.d0*conjg(r(i))*r(i+1)
-            H(i+1,i) = -1.d0*r(i)*conjg(r(i+1))
-         end if
+
+         H(i,i) =  ek*abs(r(i))**2*Hslab(i,i)
+         do j=i+1,L
+            H(i,j) = conjg(r(i))*r(j)*Hslab(i,j)
+            H(j,i) = conjg(r(j))*r(i)*Hslab(j,i)
+         end do
       end do
+      !
+      ! do i=1,L
+      !    H(i,i) =  ek*abs(r(i))**2*Hslab(i,i)
+      !    if(i.lt.L) then
+      !       H(i,i+1) = -1.d0*t_perp*conjg(r(i))*r(i+1)
+      !       H(i+1,i) = -1.d0*t_perp*r(i)*conjg(r(i+1))
+      !    end if
+      ! end do
+
       if(pbc) then
          H(1,L) = -conjg(r(1))*r(L)
          H(L,1) = -conjg(r(L))*r(1)
       end if
+
+
+
+
     END SUBROUTINE build_hop
 
-
-
-
-    SUBROUTINE get_equilibriumG(ik)
+    SUBROUTINE get_equilibriumG(ik,Gk)
       integer,intent(in) :: ik
+      complex(8),dimension(L,L) :: Gk
       integer :: i,j,iE
       do i=1,L
          do j=1,L
-            Gslab_equ(ik,i,j) = 0.d0
+            Gk(i,j) = 0.d0
             do iE = 1,L
-               ! Gslab_equ(ik,i,j) = Gslab_equ(ik,i,j) + Zi*conjg(H(j,iE))*H(i,iE)*fermi_zero(w(iE),0.d0)
-               Gslab_equ(ik,i,j) = Gslab_equ(ik,i,j) + Zi*conjg(H(j,iE))*H(i,iE)*fermi(w(iE),beta)
+               Gk(i,j) = Gk(i,j) + Zi*conjg(H(j,iE))*H(i,iE)*fermi(w(iE),beta_neq)
             end do
             if(i.eq.j) then
-               Gslab_equ(ik,i,j) = Gslab_equ(ik,i,j) - Zi
+               Gk(i,j) = Gk(i,j) - Zi
+
             end if
          end do
       end do
@@ -280,11 +361,11 @@ CONTAINS
       ek = epsik(ik)
       do i=1,L
          do j=1,L
-            nkz(j) = nkz(j) + abs(H(j,i))**2*wt(ik)*fermi(w(i),beta)
-            eZ(j) = eZ(j) + 2.d0*ek*abs(H(j,i))**2*wt(ik)*fermi(w(i),beta)
+            nkz(j) = nkz(j) + abs(H(j,i))**2*wt(ik)*fermi(w(i),beta_equ)
+            eZ(j) = eZ(j) + 2.d0*ek*abs(H(j,i))**2*wt(ik)*fermi(w(i),beta_equ)
             if(j.lt.L) then
-               hop_plus(j) = hop_plus(j) + 2.d0*conjg(H(j+1,i))*H(j,i)*wt(ik)*fermi(w(i),beta)
-               hop_minus(j) = hop_minus(j) + 2.d0*conjg(H(j,i))*H(j+1,i)*wt(ik)*fermi(w(i),beta)
+               hop_plus(j) = hop_plus(j) + 2.d0*conjg(H(j+1,i))*H(j,i)*wt(ik)*fermi(w(i),beta_equ)
+               hop_minus(j) = hop_minus(j) + 2.d0*conjg(H(j,i))*H(j+1,i)*wt(ik)*fermi(w(i),beta_equ)
             end if
          end do
       end do
@@ -372,30 +453,31 @@ CONTAINS
 
       do i=1,L
          
-         p0 = eqPhi(i)%p0
-         p1 = eqPhi(i)%p1
-         p2 = eqPhi(i)%p2
+         p0 = opt_Phi(i)%p0
+         p1 = opt_Phi(i)%p1
+         p2 = opt_Phi(i)%p2
 
          H0(i) = Uz(i)*.5
          H2(i) = Uz(i)*.5
          H1(i) = conjg(r(i))*eZ(i)
          
          if(i.gt.1) then
-            H1(i) = H1(i) - conjg(r(i-1))*hop_minus(i-1)
+            H1(i) = H1(i) + conjg(r(i-1))*hop_minus(i-1)*Hslab(i-1,i)
          end if
          
          if(i.lt.L) then
-            H1(i) = H1(i) - conjg(r(i+1))*hop_plus(i)
+            H1(i) = H1(i) + conjg(r(i+1))*hop_plus(i)*Hslab(i+1,i)
          end if
          H1(i) = H1(i)*sqrt(2.d0)
          
-         S0(i) = log(4.d0*ABS(eqPhi(i)%p0)**2) + 1.d0
-         S1(i) = log(2.d0*ABS(eqPhi(i)%p1)**2) + 1.d0
-         S2(i) = log(4.d0*ABS(eqPhi(i)%p2)**2) + 1.d0
+         ! S0(i) = log(4.d0*ABS(eqPhi(i)%p0)**2) + 1.d0
+         ! S1(i) = log(2.d0*ABS(eqPhi(i)%p1)**2) + 1.d0
+         ! S2(i) = log(4.d0*ABS(eqPhi(i)%p2)**2) + 1.d0
          
-         S_tot = S_tot + abs(p0)**2*log(abs(p0)**2/4.d0) + &
-              + abs(p2)**2*log(abs(p2)**2/4.d0) + &
-              + abs(p1)**2*log(abs(p1)**2/2.d0)
+         ! S_tot = S_tot + abs(p0)**2*log(abs(p0)**2/4.d0) + &
+         !      + abs(p2)**2*log(abs(p2)**2/4.d0) + &
+         !      + abs(p1)**2*log(abs(p1)**2/2.d0)
+
 
       end do
 
@@ -428,17 +510,17 @@ CONTAINS
          
          call matrix_diagonalize(GZ_H,GZ_eigen,jobz,uplo)
          
-         eqPhi(i_L)%p0 = GZ_H(1,1)
-         eqPhi(i_L)%p1 = GZ_H(2,1)
-         eqPhi(i_L)%p2 = GZ_H(3,1)
+         opt_Phi(i_L)%p0 = GZ_H(1,1)
+         opt_Phi(i_L)%p1 = GZ_H(2,1)
+         opt_Phi(i_L)%p2 = GZ_H(3,1)
 
       end do
       
       !  compute new wfc renormalization factors  !
-      r   = gz_hop(eqPhi)
-      dop = gz_doping(eqPhi)
-      hubb_ene = slab_hubb_ene(eqPhi,L,Uz)
-
+      r   = gz_hop(opt_Phi)
+      dop = gz_doping(opt_Phi)
+      hubb_ene = slab_hubb_ene(opt_Phi,L,Uz)
+      
     END SUBROUTINE diag_Hphi_equ
 
     

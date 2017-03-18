@@ -281,7 +281,7 @@ CONTAINS
     end do
 
     do i_vertex=2,MP
-       p(i_vertex,i_vertex-1) = 0.25d0*pi
+       p(i_vertex,i_vertex-1) = 0.5d0*pi
     end do
     do i_vertex=1,MP
        y(i_vertex)=f_theta(p(i_vertex,:))
@@ -297,7 +297,7 @@ CONTAINS
        p(:,i_dim) = p(1,i_dim)
     end do
     do i_vertex=2,MP
-       p(i_vertex,i_vertex-1) = 0.25d0*pi
+       p(i_vertex,i_vertex-1) = 0.5d0*pi
     end do
     do i_vertex=1,MP
        y(i_vertex)=f_theta(p(i_vertex,:))
@@ -312,7 +312,7 @@ CONTAINS
        p(:,i_dim) = p(1,i_dim)
     end do
     do i_vertex=2,MP
-       p(i_vertex,i_vertex-1) = 0.25d0*pi
+       p(i_vertex,i_vertex-1) = 0.5d0*pi
     end do
     do i_vertex=1,MP
        y(i_vertex)=f_theta(p(i_vertex,:))
@@ -887,7 +887,6 @@ CONTAINS
     prj_entropy = 0.d0
     do iL=1,L
        !+- energy contribution to free energy -+!
-       write(*,*) Gamma,D_ave
        free = free + hop_intra(iL)*(ABS(Rhop(iL))**2 - Gamma*(1.d0-4.d0*Docc(iL))**2.d0*e0_intra(iL))
        if(iL.gt.1) then
           free = free - (conjg(Rhop(iL-1))*Rhop(iL) - Gamma*(1.d0-4.d0*Docc(iL))*(1.d0-4.d0*Docc(iL-1))*e0_intra(iL))*delta_minus(iL-1)
@@ -918,7 +917,6 @@ CONTAINS
     f_theta = energy - temp*(prj_entropy + free_entropy)
     amoeba_funct_calls = amoeba_funct_calls + 1
     write(11,'(6f18.10)') dble(amoeba_funct_calls),f_theta,energy,free_entropy,prj_entropy
-    write(*,*) amoeba_funct_calls,f_theta
     deallocate(phi_gz,H_star,w,Rhop,gz_dop,Docc)
   END FUNCTION F_THETA
 

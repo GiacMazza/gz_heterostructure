@@ -79,26 +79,26 @@ CONTAINS
       !+- gutzwiller observables -+!
       allocate(gz_phi(Nt,L),x_gz(Nt,L),r_gz(Nt,L),Docc(Nt,L),norm_gz(Nt,L))
       allocate(doublons(Nt,L),holons(Nt,L),ph_doublons(Nt,L),ph_holons(Nt,L))
-
-
+      
+      
       allocate(vk_L(Nk_orth,2*Nt+1),vk_R(Nk_orth,2*Nt+1))
       allocate(muL(2*Nt+1),muR(2*Nt+1))
       allocate(e_loc(L,2*Nt+1),Uz_time(L,2*Nt+1))
+      
 
 
       !+- OPEN OUTPUT FILES -+!
       open(50,file="columns_Layer_info.out")
       write(50,"(A1,A17,16A18)")"#","1t","2n","3x","4n_dot","5E_i","6|R_i|**2","7-8R_i","9Docc_i","10-11d^+_{i+1}d_i","12-13R^+(i+1)*R(i)","14-17L-RHyb"
       close(50)
-
       do iL=1,L
          write(fileout,'(I3.3)') iL
          open(unit=200+iL,file='Layer_'//trim(fileout)//'.out')
          open(unit=500+iL,file='Gz_layer_'//trim(fileout)//'.out')
       end do
-
+      
       open(unit=10,file='Slab.out')
-
+      
     end subroutine allocate_dynamics
 
 
@@ -116,9 +116,8 @@ CONTAINS
       !+- START TIME EVOLUTION -+!
       call system_clock(count=t0)
       open(100,file='time_loop.out')
-
       call start_timer
-
+      
       t = -dt
       do it = 1,Nt
          t = t + dt
@@ -135,7 +134,7 @@ CONTAINS
             ! psi_t(ik_sys+3)    = abs(dreal(psi_t(ik_sys+3)))
          end do
 
-         psi_t = RK_step(Nsys,mrk,dt,t,psi_t,slab_lead_obs_eom_k)
+         psi_t = RK_step(Nsys,mrk,dt,t,psi_t,slab_lead_obs_eom_Hij)
          !psi_t = RK_step(Nsys,mrk,dt,t,psi_t,slab_lead_obs_eom_extreme)
          call system_clock(count=t_run)
          write(100,'(I4,F18.10)') it,log(dble(t_run-t0)/10000.d0)
@@ -307,8 +306,10 @@ CONTAINS
                  ,doublons(it,iL)                  & !9     D=<n_up n_dw>(i)
                  ,hop_plus(it,iL)                  & !10/11 d^+_{i+1}d_i 
                  ,conjg(r_gz(it,iL+1))*r_gz(it,iL) & !12/13 R^+(i+1)*R(i)
-                 ,hyb_left(it,iL)                  & !14/15 left hybridization                                    
-                 ,hyb_right(it,iL)                             !16/17 right hybridization
+                 ,eSlab(it,iL)*abs(r_gz(it,iL))**2 & !14
+                 ,dreal(hop_plus(it,iL)*conjg(r_gz(it,iL+1))*r_gz(it,iL)) & !15
+                 ,hyb_left(it,iL)                  & !16/17 left hybridization                                    
+                 ,hyb_right(it,iL)                             !17/18 right hybridization
 
 
             write(500+iL,'(15(F18.10))')           &
@@ -325,7 +326,7 @@ CONTAINS
          slab_ene = slab_ene + 2.d0*eSlab(it,iL)*abs(r_gz(it,iL))**2 + U*doublons(it,iL)
          !
          kin_ene = kin_ene + 2.d0*eSlab(it,iL)*abs(r_gz(it,iL))**2
-         int_ene = int_ene + U*docc(it,iL)
+         int_ene = int_ene + U*doublons(it,iL)
          !
          
          hyb_ene  = hyb_ene  + 2.d0*dREAL(hyb_right(it,iL)*conjg(r_gz(it,iL)))
@@ -342,8 +343,11 @@ CONTAINS
               ,doublons(it,iL)                     & !9     ::  
               ,Z0                                  & !10/11 :: d^+_{i+1,i}*R^+(i+1)*R(i)
               ,Z0                                  & !12/13 :: d^+_{i+1,i}
-              ,hyb_left(it,iL)                     & !14/15 :: left hybridization                                   
-              ,hyb_right(it,iL)                             
+              ,eSlab(it,iL)*abs(r_gz(it,iL))**2+U*doublons(it,iL) & !14
+              ,0.d0                             & !15
+              ,hyb_left(it,iL)                     & !16/17 :: left hybridization                                   
+              ,hyb_right(it,iL)                            !17/18 :: left hybridization                                    
+
 
          write(500+iL,'(15(F18.10))')              &
               t_grid(it)                           & !1     current time               
