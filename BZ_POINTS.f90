@@ -4,10 +4,12 @@
 !Usefull help A Amaricci
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 MODULE BZ_POINTS
-  USE COMMON_VARS
+  USE SF_CONSTANTS
   USE VECTORS
-  USE TOOLS
-  USE ARRAYS
+  USE SF_SPECIAL
+  USE SF_IOTOOLS
+  USE SF_ARRAYS
+!  USE FUNCTIONS
   implicit none
   private
 
@@ -30,6 +32,10 @@ MODULE BZ_POINTS
   real(8),dimension(:),allocatable,public       :: k_bath_log
   real(8),dimension(:),allocatable,public       :: k_bath
 
+  real(8),dimension(:),allocatable,public       :: ene_dos
+  real(8),dimension(:),allocatable,public       :: wt_dos
+
+
   integer,dimension(:,:),allocatable,public     :: kindex   !k grid index
 
   public :: reduced_BZ  
@@ -38,6 +44,8 @@ MODULE BZ_POINTS
   public :: fermi_zero
   public :: bath_dos
   public :: bath_coupling
+  public :: build_layer_dos
+  public :: build_orth_BZ
   !    public :: Npoints_BZ
 
 CONTAINS
@@ -47,6 +55,83 @@ CONTAINS
   ! routine to build up the k_grid in the 
   ! Reduced Brillouin Zone
   !+------------------------------------------+!
+  SUBROUTINE build_layer_dos(nx,layer_dos_)
+    integer               :: nx,i
+    real(8),dimension(nx) :: dos
+    real(8)               :: wband,dw,x,kint,eint,test
+    character(len=16),optional     :: layer_dos_
+    character(len=16)     :: layer_dos
+
+    layer_dos='2d_square'
+    if(present(layer_dos_)) layer_dos=layer_dos_
+
+    allocate(wt_dos(nx),ene_dos(nx))
+
+    dos=0.d0
+    test=0.d0
+    wband=4.d0
+    ene_dos = linspace(-wband,wband,nx,mesh=dw)
+    do i=1,nx
+       x=0.5d0*(ene_dos(i)/wband)**2-1.d0
+       call comelp(x,kint,eint)
+       !+- select layer density of states -+!
+       select case(layer_dos)
+       case('2d_square')
+          dos(i)=2.d0/wband/pi**2*kint*heaviside(wband-abs(ene_dos(i)))
+       case('flat')
+          dos(i)=0.5d0/4.d0*heaviside(4.d0-abs(ene_dos(i)))
+       case('bethe')
+          !insert here the bethe lattice dos
+       end select
+
+       if(i.eq.nx.or.i.eq.1) then
+          wt_dos(i) = dw*0.5d0*dos(i)
+       else
+          wt_dos(i) = dw*dos(i)
+       end if
+       test=test+wt_dos(i)
+    enddo
+    dos=dos/sum(dos)/dw
+    call splot("dos2d.out",ene_dos,dos,wt_dos)
+
+  END SUBROUTINE build_layer_dos
+
+
+
+  SUBROUTINE build_orth_BZ(Nk)
+    integer   ::  Nk
+    real(8)   ::  kz
+    real(8)   ::  dk
+    real(8)   ::  test
+    integer   ::  ik
+
+    allocate(k_orth(Nk),wt_orth(Nk))
+
+    open(unit=10,file='k_orth.out')
+
+    !+- kz = pi/(N+1) ... pi*N/(N+1) -+!
+    test = 0.d0
+
+    dk = pi/dble(Nk+1)
+    kz = 0.d0
+    do ik = 1,Nk
+       kz = kz + dk
+       k_orth(ik) = kz 
+
+       wt_orth(ik) = 1.d0/dble(Nk)
+
+       write(10,*) k_orth(ik),wt_orth(ik),-2.d0*cos(k_orth(ik))
+       test = test + wt_orth(ik)
+
+    end do
+
+    write(10,*) test
+
+    close(10)
+
+  END SUBROUTINE build_orth_BZ
+
+
 
   SUBROUTINE reduced_BZ(nx,Nkorth,off_set)
     integer     :: nx,i
@@ -65,9 +150,9 @@ CONTAINS
 
     Nk=Npoints_BZ(nx)
     write(*,*) 'number of k points',Nk
-
+    
     call build_reduced_BZ(off_set)
-    call build_orth_BZ(Nkorth)
+    !call build_orth_BZ(Nkorth)
     call print_reduced_BZ
 
     norm = 0.d0
@@ -232,7 +317,7 @@ CONTAINS
          do iy=1,ix
             
             ik=kindex(ix,iy)
-            write(10,"(3(F18.10),I)") kgrid(ix,iy)%x,kgrid(ix,iy)%y,wt(ik),ik
+            write(10,"(3(F18.10),I4)") kgrid(ix,iy)%x,kgrid(ix,iy)%y,wt(ik),ik
             
          end do
 
@@ -250,38 +335,6 @@ CONTAINS
     END SUBROUTINE print_reduced_BZ
 
 
-    SUBROUTINE build_orth_BZ(Nk)
-      integer   ::  Nk
-      real(8)   ::  kz
-      real(8)   ::  dk
-      real(8)   ::  test
-      integer   ::  ik
-
-      allocate(k_orth(Nk),wt_orth(Nk))
-
-      open(unit=10,file='k_orth.out')
-
-      !+- kz = pi/(N+1) ... pi*N/(N+1) -+!
-      test = 0.d0
-
-      dk = pi/dble(Nk+1)
-      kz = 0.d0
-      do ik = 1,Nk
-         kz = kz + dk
-         k_orth(ik) = kz 
-
-         wt_orth(ik) = 1.d0/dble(Nk)
-
-         write(10,*) k_orth(ik),wt_orth(ik),-2.d0*cos(k_orth(ik))
-         test = test + wt_orth(ik)
-
-      end do
-
-      write(10,*) test
-
-      close(10)
-
-    END SUBROUTINE build_orth_BZ
 
 
   END SUBROUTINE reduced_BZ
@@ -477,7 +530,11 @@ CONTAINS
     if(ek.gt.0.d0) then
        f=0.d0
     else
-       f=1.d0
+       if(ek.eq.0.d0) then
+          f=0.5d0
+       else
+          f=1.d0
+       end if
     end if
     ! f = 1.d0/(exp(beta*ek)+1.d0)
 

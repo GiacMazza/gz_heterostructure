@@ -27,7 +27,8 @@ CONTAINS
        write(*,*) 'minimization achived at ph symmetry'
     case('linear')
        do iL=1,L
-          local_field(iL) = -(mu_L + (mu_R - mu_L )*dble(iL-1)/dble(L-1))
+          !local_field(iL) = -(mu_L + (mu_R - mu_L )*dble(iL-1)/dble(L-1))
+          local_field(iL) = chem_equ
        end do
        call GZ_EQUILIBRIUM_TEMP_DENSITY
        write(*,*) 'minimization achived at free layer density'
@@ -79,9 +80,9 @@ CONTAINS
     do iL=1,L/2
        if(Uz(iL).lt.16.d0) then
           x(iL)     = acos(Uz(iL)/16.d0)
-          x(iL+L/2) = 0.5d0*acos(-( d_max+(d_min-d_max)/(L/2-1)*(iL-1) ) / sin(x(iL))**2 )
+          x(iL+L/2) = pi*0.2  !0.5d0*acos(-( d_max+(d_min-d_max)/(L/2-1)*(iL-1) ) / sin(x(iL))**2 )
        else
-          x(iL)     = 0.d0
+          x(iL)     = 0.5d0
           x(iL+L/2) = pi*0.25d0
        end if
     end do
@@ -94,7 +95,7 @@ CONTAINS
     end do
 
     do i_vertex=2,MP
-       p(i_vertex,i_vertex-1) = 0.25d0*pi
+       p(i_vertex,i_vertex-1) = 0.1d0*pi
     end do
     do i_vertex=1,MP
        y(i_vertex)=f_theta_gamma(p(i_vertex,:))
@@ -132,7 +133,7 @@ CONTAINS
        write(*,*) 'vertex',i_vertex,'free energy',y(i_vertex)
     end do
     !+- 3RD attemp -+!
-    ftol = 1.d-12
+    ftol = 1.d-9
     call amoeba(p(1:MP,1:NP),y(1:MP),FTOL,f_theta_gamma,iter)
 
 
@@ -452,7 +453,7 @@ CONTAINS
        if(Uz(iL).lt.16.d0) then
           x(iL)     = acos(Uz(iL)/16.d0)
        else
-          x(iL)     = 0.00001d0
+          x(iL)     = 0.00011d0
        end if
     end do
     open(11,file='free_iter_met_ph.out')
@@ -539,6 +540,10 @@ CONTAINS
     complex(8),allocatable,dimension(:,:)       :: H_star
     real(8),allocatable,dimension(:)            :: w
 
+    !+- correction term -+!
+    !real(8),allocatable,dimension(:)            :: e0_temp
+    real(8)                                     :: e0_temp
+
 
     real(8)                                     :: theta,gm,phi
     real(8)                                     :: ek
@@ -546,6 +551,7 @@ CONTAINS
     real(8)                                     :: p0,p1,p2
     real(8)                                     :: free
     real(8)                                     :: n_temp
+
     type(vec2D)                                 :: k
 
     integer                                     :: iL,jL
@@ -562,8 +568,11 @@ CONTAINS
        phi_gz(iL)%p2 = sin(theta*0.5d0)*cos(gm)*Exp(Zi*phi)
        phi_gz(iL)%p1 = cos(theta*0.5d0)
        ! right 
-       phi_gz(L-(iL-1))%p0 = sin(theta*0.5d0)*sin(pi*0.5d0-gm)*Exp(Zi*phi)
-       phi_gz(L-(iL-1))%p2 = sin(theta*0.5d0)*cos(pi*0.5d0-gm)*Exp(Zi*phi)
+       ! phi_gz(L-(iL-1))%p0 = sin(theta*0.5d0)*sin(pi*0.5d0-gm)*Exp(Zi*phi)
+       ! phi_gz(L-(iL-1))%p2 = sin(theta*0.5d0)*cos(pi*0.5d0-gm)*Exp(Zi*phi)
+       ! phi_gz(L-(iL-1))%p1 = cos(theta*0.5d0)
+       phi_gz(L-(iL-1))%p0 = sin(theta*0.5d0)*sin(gm)*Exp(Zi*phi)
+       phi_gz(L-(iL-1))%p2 = sin(theta*0.5d0)*cos(gm)*Exp(Zi*phi)
        phi_gz(L-(iL-1))%p1 = cos(theta*0.5d0)
     end do
 
@@ -571,6 +580,8 @@ CONTAINS
     gz_dop = GZ_doping(phi_gz)
     Docc   = GZ_double(phi_gz)
 
+
+    
     !+- minimize F_star with respect to layer dependent chemical potentials -+!
     mu_star = 0.d0  
     call fsolve(nstar_slab,mu_star,tol=1.d-15)
@@ -596,7 +607,7 @@ CONTAINS
        H_star=0.d0
        w = 0.d0
        do iL=1,L
-          H_star(iL,iL) =  ek*abs(Rhop(iL))**2 + mu_star(iL)
+          H_star(iL,iL) =  ek*abs(Rhop(iL))**2 + mu_star(iL) 
           if(iL.lt.L) then
              H_star(iL,iL+1) = -1.d0*conjg(Rhop(iL))*Rhop(iL+1)
              H_star(iL+1,iL) = -1.d0*Rhop(iL)*conjg(Rhop(iL+1))
@@ -630,8 +641,7 @@ CONTAINS
           end do
        end do
     end do !+- end k points loop -+! 
-
-
+    
     if(print_iter) then
        do iL=1,L
           write(10,'(10(F18.10))') dble(iL),mu_star(iL),gz_dop(iL),1.d0-n_test(iL),abs(Rhop(iL))
@@ -639,8 +649,7 @@ CONTAINS
        write(10,*)
        write(10,*)
     end if
-
-
+    
     !+- GZ projectors contribution to the free energy -+!
     prj_entropy = 0.d0
     do iL=1,L
@@ -679,8 +688,9 @@ CONTAINS
     energy = free
 
     !+- free energy estimation -+!
-    f_theta_gamma = energy - temp*(prj_entropy + free_entropy)
-
+    !f_theta_gamma = energy - temp*(prj_entropy + free_entropy)
+    f_theta_gamma = energy
+    
     amoeba_funct_calls = amoeba_funct_calls + 1
     write(11,'(6f18.10)') dble(amoeba_funct_calls),f_theta_gamma,energy,free_entropy,prj_entropy
     write(*,*) amoeba_funct_calls,f_theta_gamma
@@ -752,7 +762,48 @@ CONTAINS
     type(vec2D)                                 :: k
     integer                                     :: iL,jL
     integer                                     :: ik
+    real(8)                                     :: e0_temp
+    real(8)                                     :: ehop_temp,D_ave
+    real(8),dimension(:),allocatable            :: e0_intra,e0_plus,e0_minus
     allocate(phi_gz(L),H_star(L,L),w(L),Rhop(L),gz_dop(L),Docc(L),n_test(L))
+    allocate(e0_intra(L),e0_plus(L),e0_minus(L))
+
+    e0_intra=0.d0
+    e0_plus=0.d0
+    e0_minus=0.d0
+    do ik=1,Nk_tot !+- k points loop -+!
+       !+- build and diagonalize real space hamiltonian -+!
+       k = vec_k(ik)
+       ek = square_lattice_disp(k)
+       H_star=0.d0
+       w = 0.d0
+       do iL=1,L
+          H_star(iL,iL)   = ek
+          if(iL.lt.L) then
+             H_star(iL,iL+1) = -1.d0
+             H_star(iL+1,iL) = -1.d0
+          end if
+       end do
+       call  matrix_diagonalize(H_star,w,'V','L')
+       !+------------------------------------------------+!
+       do iL=1,L
+          n_temp = fermi(w(iL),beta)
+          do jL=1,L
+             n_test(jL) = n_test(jL) + 2.d0*abs(H_star(jL,iL))**2*wt(ik)*n_temp
+             e0_intra(jL) = e0_intra(jL) + 2.d0*ek*abs(H_star(jL,iL))**2*wt(ik)*n_temp
+             if(jL.lt.L) then
+                e0_plus(jL)  = delta_plus(jL) + 2.d0*conjg(H_star(jL+1,iL))*H_star(jL,iL)*wt(ik)*n_temp
+                e0_minus(jL) = delta_minus(jL) + 2.d0*conjg(H_star(jL,iL))*H_star(jL+1,iL)*wt(ik)*n_temp
+             endif
+          enddo
+       enddo
+    enddo !+- end k points loop -+! 
+
+    !+--+!
+    ! n_temp = fermi(ene_dos(ieps)*(R**2 + Gamma*(1.d0 - 4.d0*double)**2.d0*n0),beta)
+    ! energy_free = energy_free + (R**2+ Gamma*(1.d0 - 4.d0*double)**2.d0*n0)*n_temp*ene_dos(ieps)*flat_dos(ieps)*2.d0
+    !+--+!
+
 
     do iL=1,L/2
        theta = gz_angle(iL)
@@ -770,6 +821,7 @@ CONTAINS
     Rhop   = GZ_hop(phi_gz)
     gz_dop = GZ_doping(phi_gz)
     Docc   = GZ_double(phi_gz)
+    D_ave = sum(Docc)/dble(L)
     !+- minimize F_star with respect to layer dependent chemical potentials -+!
     mu_star = 0.d0  
     !+------------------------+!
@@ -789,10 +841,10 @@ CONTAINS
        H_star=0.d0
        w = 0.d0
        do iL=1,L
-          H_star(iL,iL) =  ek*abs(Rhop(iL))**2 + mu_star(iL)
+          H_star(iL,iL) =  ek*abs(Rhop(iL))**2 + mu_star(iL) !- Gamma*(1.d0-4.d0*Docc(iL))**2.d0*e0_intra(iL)
           if(iL.lt.L) then
-             H_star(iL,iL+1) = -1.d0*conjg(Rhop(iL))*Rhop(iL+1)
-             H_star(iL+1,iL) = -1.d0*Rhop(iL)*conjg(Rhop(iL+1))
+             H_star(iL,iL+1) = -1.d0*conjg(Rhop(iL))*Rhop(iL+1) !- Gamma*(1.d0-4.d0*Docc(iL))*(1.d0-4.d0*Docc(iL+1))*e0_plus(iL)
+             H_star(iL+1,iL) = -1.d0*Rhop(iL)*conjg(Rhop(iL+1)) !- Gamma*(1.d0-4.d0*Docc(iL))*(1.d0-4.d0*Docc(iL+1))*e0_minus(iL)
           end if
        end do
        if(pbc) then
@@ -802,27 +854,28 @@ CONTAINS
        call  matrix_diagonalize(H_star,w,'V','L')
        !+------------------------------------------------+!
        do iL=1,L
+          n_temp = fermi(w(iL),beta)
+          !n_temp = fermi(w(iL)- Gamma*(1.d0-4.d0*Docc(iL))**2.d0*e0_intra(iL),beta)
           do jL=1,L
-             n_test(jL) = n_test(jL) + 2.d0*abs(H_star(jL,iL))**2*wt(ik)*fermi(w(iL),beta)
-             hop_intra(jL) = hop_intra(jL) + 2.d0*ek*abs(H_star(jL,iL))**2*wt(ik)*fermi(w(iL),beta)
+             n_test(jL) = n_test(jL) + 2.d0*abs(H_star(jL,iL))**2*wt(ik)*n_temp
+             hop_intra(jL) = hop_intra(jL) + 2.d0*ek*abs(H_star(jL,iL))**2*wt(ik)*n_temp
              if(jL.lt.L) then
-                delta_plus(jL)  = delta_plus(jL) + 2.d0*conjg(H_star(jL+1,iL))*H_star(jL,iL)*wt(ik)*fermi(w(iL),beta)
-                delta_minus(jL) = delta_minus(jL) + 2.d0*conjg(H_star(jL,iL))*H_star(jL+1,iL)*wt(ik)*fermi(w(iL),beta)
+                delta_plus(jL)  = delta_plus(jL) + 2.d0*conjg(H_star(jL+1,iL))*H_star(jL,iL)*wt(ik)*n_temp
+                delta_minus(jL) = delta_minus(jL) + 2.d0*conjg(H_star(jL,iL))*H_star(jL+1,iL)*wt(ik)*n_temp
                 !+- free electrons entropy -+!
                 if(jL.eq.1) then
-                   n_temp = fermi(w(iL),beta)
                    if(n_temp.gt.1.d-10) then
                       free_entropy = free_entropy - ( n_temp*log(n_temp))*wt(ik)*2.d0 
-                   end if
+                   endif
                    if(abs(1.d0-n_temp).gt.1.d-10) then
                       free_entropy = free_entropy - (1.d0-n_temp)*log(1.d0-n_temp )*wt(ik)*2.d0
-                   end if
-                end if
+                   endif
+                endif
                 !+--------------------------+!
-             end if
-          end do
-       end do
-    end do !+- end k points loop -+! 
+             endif
+          enddo
+       enddo
+    enddo !+- end k points loop -+! 
     if(print_iter) then
        do iL=1,L
           write(10,'(10(F18.10))') dble(iL),mu_star(iL),gz_dop(iL),1.d0-n_test(iL),abs(Rhop(iL))
@@ -834,12 +887,13 @@ CONTAINS
     prj_entropy = 0.d0
     do iL=1,L
        !+- energy contribution to free energy -+!
-       free = free + hop_intra(iL)*ABS(Rhop(iL))**2 
+       write(*,*) Gamma,D_ave
+       free = free + hop_intra(iL)*(ABS(Rhop(iL))**2 - Gamma*(1.d0-4.d0*Docc(iL))**2.d0*e0_intra(iL))
        if(iL.gt.1) then
-          free = free - conjg(Rhop(iL-1))*Rhop(iL)*delta_minus(iL-1)
+          free = free - (conjg(Rhop(iL-1))*Rhop(iL) - Gamma*(1.d0-4.d0*Docc(iL))*(1.d0-4.d0*Docc(iL-1))*e0_intra(iL))*delta_minus(iL-1)
        end if
        if(iL.lt.L) then
-          free = free - conjg(Rhop(iL+1))*Rhop(iL)*delta_plus(iL)
+          free = free - (conjg(Rhop(iL+1))*Rhop(iL) - Gamma*(1.d0-4.d0*Docc(iL))*(1.d0-4.d0*Docc(iL+1))*e0_intra(iL))*delta_plus(iL)
        end if
        free = free + Uz(iL)*Docc(iL) + local_field(iL)*(1.d0-gz_dop(iL))
        !+--------------------------------------+!
@@ -886,7 +940,7 @@ CONTAINS
     integer                   :: iL,jL,iE,ik
     real(8)                   :: theta,gamma,phi,ek
     type(vec2D)               :: k
-
+    real(8)                   :: Rave
 
 
     !+- get GZ parameters -+!
@@ -912,36 +966,75 @@ CONTAINS
     end do
     close(20)
 
-    !+- get uncorrelated density matrix -+!
-    do ik=1,Nk_tot !+- k points loop -+!
-       k = vec_k(ik)
-       ek = square_lattice_disp(k)
-       H_star=0.d0
-       w = 0.d0
-       do iL=1,L
-          H_star(iL,iL) =  ek*abs(R_opt(iL))**2 + mu_star(iL)
-          if(iL.lt.L) then
-             H_star(iL,iL+1) = -1.d0*conjg(R_opt(iL))*R_opt(iL+1)
-             H_star(iL+1,iL) = -1.d0*R_opt(iL)*conjg(R_opt(iL+1))
-          end if
-       end do
-       if(pbc) then
-          H_star(1,L) = -1.d0*conjg(R_opt(1))*R_opt(L)
-          H_star(L,1) = -1.d0*conjg(R_opt(L))*R_opt(1)
-       end if
-       call  matrix_diagonalize(H_star,w,'V','L')
-       do iL=1,L
-          do jL=1,L
-             Gslab_equ(ik,iL,jL) = 0.d0
-             do iE = 1,L
-                Gslab_equ(ik,iL,jL) = Gslab_equ(ik,iL,jL) + Zi*conjg(H_star(jL,iE))*H_star(iL,iE)*fermi(w(iE),beta)
-             end do
-             if(iL.eq.jL) then
-                Gslab_equ(ik,iL,jL) = Gslab_equ(ik,iL,jL) - Zi
+    Rave = sum(R_opt)/dble(L)
+
+    if(Rave.gt.1.d-3) then
+
+       !+- get uncorrelated density matrix -+!
+       do ik=1,Nk_tot !+- k points loop -+!
+          k = vec_k(ik)
+          ek = square_lattice_disp(k)
+          H_star=0.d0
+          w = 0.d0
+          do iL=1,L
+             H_star(iL,iL) =  ek*abs(R_opt(iL))**2 + mu_star(iL)
+             if(iL.lt.L) then
+                H_star(iL,iL+1) = -1.d0*conjg(R_opt(iL))*R_opt(iL+1)
+                H_star(iL+1,iL) = -1.d0*R_opt(iL)*conjg(R_opt(iL+1))
              end if
           end do
-       end do
-    end do !+- end k points loop -+! 
+          if(pbc) then
+             H_star(1,L) = -1.d0*conjg(R_opt(1))*R_opt(L)
+             H_star(L,1) = -1.d0*conjg(R_opt(L))*R_opt(1)
+          end if
+          call  matrix_diagonalize(H_star,w,'V','L')
+          do iL=1,L
+             do jL=1,L
+                Gslab_equ(ik,iL,jL) = 0.d0
+                do iE = 1,L
+                   Gslab_equ(ik,iL,jL) = Gslab_equ(ik,iL,jL) + Zi*conjg(H_star(jL,iE))*H_star(iL,iE)*fermi(w(iE),beta)
+                end do
+                if(iL.eq.jL) then
+                   Gslab_equ(ik,iL,jL) = Gslab_equ(ik,iL,jL) - Zi
+                end if
+             end do
+          end do
+       end do !+- end k points loop -+! 
+
+    else
+
+       do ik=1,Nk_tot !+- k points loop -+!
+          k = vec_k(ik)
+          ek = square_lattice_disp(k)
+          H_star=0.d0
+          w = 0.d0
+          do iL=1,L
+             H_star(iL,iL) =  ek + mu_star(iL)
+             if(iL.lt.L) then
+                H_star(iL,iL+1) = -1.d0
+                H_star(iL+1,iL) = -1.d0
+             end if
+          end do
+          if(pbc) then
+             H_star(1,L) = -1.d0
+             H_star(L,1) = -1.d0
+          end if
+          call  matrix_diagonalize(H_star,w,'V','L')
+          do iL=1,L
+             do jL=1,L
+                Gslab_equ(ik,iL,jL) = 0.d0
+                do iE = 1,L
+                   Gslab_equ(ik,iL,jL) = Gslab_equ(ik,iL,jL) + Zi*conjg(H_star(jL,iE))*H_star(iL,iE)*fermi(w(iE),beta)
+                end do
+                if(iL.eq.jL) then
+                   Gslab_equ(ik,iL,jL) = Gslab_equ(ik,iL,jL) - Zi
+                end if
+             end do
+          end do
+       end do !+- end k points loop -+! 
+
+    end if
+
   END SUBROUTINE get_equ_temp_conditions
 
 
@@ -955,7 +1048,7 @@ CONTAINS
     real(8),dimension(L)      :: w,dop_opt
 
     integer                   :: iL,jL,iE,ik
-    real(8)                   :: theta,gamma,phi,ek
+    real(8)                   :: theta,gamma,phi,ek,Rave
     type(vec2D)               :: k
 
 
@@ -977,43 +1070,89 @@ CONTAINS
     end do
     R_opt = GZ_hop(eqPhi)
     dop_opt = GZ_doping(eqPhi)
-    
+
+    Rave = sum(R_opt)/dble(L)
+
     open(20,file='out_equ_temp.out')
     do iL=1,L
        write(20,*) iL,abs(R_opt(iL))**2.d0,dop_opt(iL)
     end do
     close(20)
 
-    !+- get uncorrelated density matrix -+!
-    do ik=1,Nk_tot !+- k points loop -+!
-       k = vec_k(ik)
-       ek = square_lattice_disp(k)
-       H_star=0.d0
-       w = 0.d0
-       do iL=1,L
-          H_star(iL,iL) =  ek*abs(R_opt(iL))**2 + mu_star(iL)
-          if(iL.lt.L) then
-             H_star(iL,iL+1) = -1.d0*conjg(R_opt(iL))*R_opt(iL+1)
-             H_star(iL+1,iL) = -1.d0*R_opt(iL)*conjg(R_opt(iL+1))
-          end if
-       end do
-       if(pbc) then
-          H_star(1,L) = -1.d0*conjg(R_opt(1))*R_opt(L)
-          H_star(L,1) = -1.d0*conjg(R_opt(L))*R_opt(1)
-       end if
-       call  matrix_diagonalize(H_star,w,'V','L')
-       do iL=1,L
-          do jL=1,L
-             Gslab_equ(ik,iL,jL) = 0.d0
-             do iE = 1,L
-                Gslab_equ(ik,iL,jL) = Gslab_equ(ik,iL,jL) + Zi*conjg(H_star(jL,iE))*H_star(iL,iE)*fermi(w(iE),beta)
-             end do
-             if(iL.eq.jL) then
-                Gslab_equ(ik,iL,jL) = Gslab_equ(ik,iL,jL) - Zi
+    if(abs(Rave).gt.1.d-4) then
+
+       write(*,*) 'RAVE gtr',Rave
+
+
+       !+- get uncorrelated density matrix -+!
+       do ik=1,Nk_tot !+- k points loop -+!
+          k = vec_k(ik)
+          ek = square_lattice_disp(k)
+          H_star=0.d0
+          w = 0.d0
+          do iL=1,L
+             H_star(iL,iL) =  ek*abs(R_opt(iL))**2 + mu_star(iL)
+             if(iL.lt.L) then
+                H_star(iL,iL+1) = -1.d0*conjg(R_opt(iL))*R_opt(iL+1)
+                H_star(iL+1,iL) = -1.d0*R_opt(iL)*conjg(R_opt(iL+1))
              end if
           end do
-       end do
-    end do !+- end k points loop -+! 
+          if(pbc) then
+             H_star(1,L) = -1.d0*conjg(R_opt(1))*R_opt(L)
+             H_star(L,1) = -1.d0*conjg(R_opt(L))*R_opt(1)
+          end if
+          call  matrix_diagonalize(H_star,w,'V','L')
+          do iL=1,L
+             do jL=1,L
+                Gslab_equ(ik,iL,jL) = 0.d0
+                do iE = 1,L
+                   Gslab_equ(ik,iL,jL) = Gslab_equ(ik,iL,jL) + Zi*conjg(H_star(jL,iE))*H_star(iL,iE)*fermi(w(iE),beta)
+                end do
+                if(iL.eq.jL) then
+                   Gslab_equ(ik,iL,jL) = Gslab_equ(ik,iL,jL) - Zi
+                end if
+             end do
+          end do
+       end do !+- end k points loop -+! 
+
+    else
+
+       write(*,*) 'RAVE less',Rave
+
+
+       !+- get uncorrelated density matrix -+!
+       do ik=1,Nk_tot !+- k points loop -+!
+          k = vec_k(ik)
+          ek = square_lattice_disp(k)
+          H_star=0.d0
+          w = 0.d0
+          do iL=1,L
+             H_star(iL,iL) =  ek + mu_star(iL)
+             if(iL.lt.L) then
+                H_star(iL,iL+1) = -1.d0
+                H_star(iL+1,iL) = -1.d0
+             end if
+          end do
+          if(pbc) then
+             H_star(1,L) = -1.d0
+             H_star(L,1) = -1.d0
+          end if
+          call  matrix_diagonalize(H_star,w,'V','L')
+          do iL=1,L
+             do jL=1,L
+                Gslab_equ(ik,iL,jL) = 0.d0
+                do iE = 1,L
+                   Gslab_equ(ik,iL,jL) = Gslab_equ(ik,iL,jL) + Zi*conjg(H_star(jL,iE))*H_star(iL,iE)*fermi(w(iE),beta)
+                end do
+                if(iL.eq.jL) then
+                   Gslab_equ(ik,iL,jL) = Gslab_equ(ik,iL,jL) - Zi
+                end if
+             end do
+          end do
+       end do !+- end k points loop -+! 
+
+    end if
+
   END SUBROUTINE get_equ_temp_conditions_ph
 
 

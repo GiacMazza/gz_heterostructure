@@ -51,8 +51,9 @@ CONTAINS
        call check_convergence(i)
 
        energy = hop_ene + hubb_ene/(1.d0*L)
-       write(*,'(A,I,4f18.10)')'step nr',i, energy,Qstep,hubb_ene/(1.d0*L)
-              
+       write(*,'(A,I4,5f18.10)')'step numr',i, energy,Qstep,hubb_ene/(1.d0*L), &
+            hop_ene
+       
        if(Qstep.lt.conv_treshold) then
           exit
        end if
@@ -67,7 +68,7 @@ CONTAINS
 
     open(10,file='equ_gz.out')
     do i=1,L
-       write(10,"(I,5(F18.10))")  &
+       write(10,"(I4,5(F18.10))")  &
             i                     &
             ,real(eqPhi(i)%p0)    &
             ,real(eqPhi(i)%p2)    &
@@ -116,9 +117,15 @@ CONTAINS
     complex(8),dimension(:,:),allocatable       :: H
     real(8),dimension(:),allocatable            :: w
     real(8),dimension(:),allocatable            :: nz,nkz
-    
+    real(8)     :: R_ave
+    character(len=1)        :: jobz
+    character(len=1)        :: uplo
+    jobz = 'V'
+    uplo = 'L'
+
+
     allocate(H(L,L),w(L),nz(L),nkz(L))
-    
+
     nz=0.d0
     ik = 0 !k_index
     call init_to_zero
@@ -127,67 +134,82 @@ CONTAINS
        Gslab_equ = Z0
     end if
 
-    
-    do ik=1,Nk_tot
 
-       k = vec_k(ik)
-       ek = square_lattice_disp(k)
-          
-       call slab_k(k)            
-       call ho_state(0.d0)       !find the index of the highest occupied state
-       call accumulate_ksum(ik)  !accumulate k sums of hopping matrix elements
-          
-       if(present(flag_nz)) then
-          !+- get equilibrium values -+!
-          
-          !          write(*,*) 'getting equilibrium values'
-          call get_equilibriumG(ik)
-
-
+    if(.not.present(flag_nz)) then
+       do ik=1,Nk_tot
+          call slab_k(ik)            
+          call accumulate_ksum(ik)  !accumulate k sums of hopping matrix elements
+          nz = nz + nkz   
+       end do
+    else
+       R_ave = sum(R)/dble(L)
+       if(abs(R_ave).gt.1.d-4) then
+          write(*,*) 'metallic',R_ave
+          do ik=1,Nk_tot
+             call slab_k(ik)            
+             call accumulate_ksum(ik)  
+             call get_equilibriumG(ik)
+             nz = nz +nkz
+          end do
+       else
+          write(*,*) 'insulating',R_ave
+          do ik=1,Nk_tot
+             ek = epsik(ik)
+             H(:,:) = 0.d0
+             do i=1,L
+                H(i,i) =  ek
+                if(i.lt.L) then
+                   H(i,i+1) = -1.d0
+                   H(i+1,i) = -1.d0
+                end if
+             end do
+             if(pbc) then
+                H(1,L) = -1.d0
+                H(L,1) = -1.d0
+             end if
+             call matrix_diagonalize(H,w,jobz,uplo)
+             call get_equilibriumG(ik)
+             nkz(:) = 0.d0
+             do i=1,L
+                do j=1,L
+                   nkz(j) = nkz(j) + abs(H(j,i))**2*wt(ik)*fermi(w(i),beta)
+                end do
+             end do
+             nz = nz + nkz
+          end do
        end if
-
-       nz = nz + nkz   
-          
-       
-    end do 
-    
-    
+    end if
 
     if(present(flag_nz)) then
-       
        open(30,file='equ_profile.out')
        ntot =0.d0
        do i=1,L
-          
           write(30,*) i,nz(i)
-
           ntot = ntot + nz(i)
        end do
-
        write(30,*)
        write(30,*)
        write(30,*) dble(ntot)/dble(L)
-       
        close(30)
     end if
-      
+
     call  slab_tot_ene
 
     deallocate(H,w,nz,nkz)
 
   CONTAINS
-    
-    SUBROUTINE slab_k(k)
-      type(vec2D), intent(in) :: k
+
+    SUBROUTINE slab_k(ik)
+      !type(vec2D), intent(in) :: k
+      integer                 :: ik
       character(len=1)        :: jobz
       character(len=1)        :: uplo
       jobz = 'V'
       uplo = 'L'
-      call build_hop(k)
-      !      call diag_hermitian(H,L,w,jobz,uplo)
+      call build_hop(ik)
       call  matrix_diagonalize(H,w,jobz,uplo)
     END SUBROUTINE slab_k
-            
+
     SUBROUTINE ho_state(ef)
       real(8) :: ef
       integer :: i
@@ -196,43 +218,35 @@ CONTAINS
       do i=1,L
          if(w(i).gt.ef) then
             i_max = i-1
-!            write(*,*) w(i),w(i-1),ik
+            !            write(*,*) w(i),w(i-1),ik
             goto 100
          end if
       end do
-      
+
 100   continue
     END SUBROUTINE ho_state
 
 
 
-    SUBROUTINE build_hop(k)
-      type(vec2D), intent(in) :: k
+    SUBROUTINE build_hop(ik)
+      !type(vec2D), intent(in) :: k
+      integer :: ik
       integer :: i,j
       real(8) :: ek
-      ek = square_lattice_disp(k)
+      ek = epsik(ik)
       H(:,:) = 0.d0
-
-      
-      !  SLAB  !
+      !+-  SLAB  -+!
       do i=1,L
          H(i,i) =  ek*abs(r(i))**2
-
          if(i.lt.L) then
             H(i,i+1) = -1.d0*conjg(r(i))*r(i+1)
             H(i+1,i) = -1.d0*r(i)*conjg(r(i+1))
          end if
-         
       end do
-      
-
       if(pbc) then
-         
          H(1,L) = -conjg(r(1))*r(L)
          H(L,1) = -conjg(r(L))*r(1)
-
       end if
-      
     END SUBROUTINE build_hop
 
 
@@ -241,54 +255,41 @@ CONTAINS
     SUBROUTINE get_equilibriumG(ik)
       integer,intent(in) :: ik
       integer :: i,j,iE
-
-    
-
-
       do i=1,L
          do j=1,L
-            
             Gslab_equ(ik,i,j) = 0.d0
-            
             do iE = 1,L
-               Gslab_equ(ik,i,j) = Gslab_equ(ik,i,j) + Zi*conjg(H(j,iE))*H(i,iE)*fermi_zero(w(iE),0.d0)
+               ! Gslab_equ(ik,i,j) = Gslab_equ(ik,i,j) + Zi*conjg(H(j,iE))*H(i,iE)*fermi_zero(w(iE),0.d0)
+               Gslab_equ(ik,i,j) = Gslab_equ(ik,i,j) + Zi*conjg(H(j,iE))*H(i,iE)*fermi(w(iE),beta)
             end do
-            
             if(i.eq.j) then
                Gslab_equ(ik,i,j) = Gslab_equ(ik,i,j) - Zi
             end if
-
          end do
       end do
-      
     END SUBROUTINE get_equilibriumG
-    
+
 
     SUBROUTINE accumulate_ksum(ik)
       integer,intent(in) :: ik
       integer :: i,j
       integer :: i_slab
       integer :: iL,iR
+      real(8) :: ek
       nkz(:) = 0.d0
-      ! sum over occupied states !
-
+      ek = epsik(ik)
       do i=1,L
          do j=1,L
-            ! nkz(j) = nkz(j) + abs(H(j,i))**2*wt(ik)*fermi(w(i),beta)
-            ! eZ(j) = eZ(j) + 2.d0*ek*abs(H(j,i))**2*wt(ik)*fermi(w(i),beta)
-            nkz(j) = nkz(j) + abs(H(j,i))**2*wt(ik)*fermi_zero(w(i),0.d0)
-            eZ(j) = eZ(j) + 2.d0*ek*abs(H(j,i))**2*wt(ik)*fermi_zero(w(i),0.d0)
+            nkz(j) = nkz(j) + abs(H(j,i))**2*wt(ik)*fermi(w(i),beta)
+            eZ(j) = eZ(j) + 2.d0*ek*abs(H(j,i))**2*wt(ik)*fermi(w(i),beta)
             if(j.lt.L) then
-               ! hop_plus(j) = hop_plus(j) + 2.d0*conjg(H(j+1,i))*H(j,i)*wt(ik)*fermi(w(i),beta)
-               ! hop_minus(j) = hop_minus(j) + 2.d0*conjg(H(j,i))*H(j+1,i)*wt(ik)*fermi(w(i),beta)
-               hop_plus(j) = hop_plus(j) + 2.d0*conjg(H(j+1,i))*H(j,i)*wt(ik)*fermi_zero(w(i),0.d0)
-               hop_minus(j) = hop_minus(j) + 2.d0*conjg(H(j,i))*H(j+1,i)*wt(ik)*fermi_zero(w(i),0.d0)
+               hop_plus(j) = hop_plus(j) + 2.d0*conjg(H(j+1,i))*H(j,i)*wt(ik)*fermi(w(i),beta)
+               hop_minus(j) = hop_minus(j) + 2.d0*conjg(H(j,i))*H(j+1,i)*wt(ik)*fermi(w(i),beta)
             end if
          end do
       end do
-
     END SUBROUTINE accumulate_ksum
-    
+
 
     SUBROUTINE slab_tot_ene
       integer  :: i,j
@@ -306,19 +307,19 @@ CONTAINS
          if (i.lt.L) then
             hop_ene = hop_ene - conjg(r(i+1))*r(i)*hop_plus(i)
          end if
-         
+
          if(i.gt.1) then
-           hop_ene = hop_ene - conjg(r(i-1))*r(i)*hop_minus(i-1)
+            hop_ene = hop_ene - conjg(r(i-1))*r(i)*hop_minus(i-1)
          end if
-         
+
 
       end do
 
       hop_ene = hop_ene/(1.d0*L)
-      
+
     END SUBROUTINE slab_tot_ene
-    
-    
+
+
     SUBROUTINE init_to_zero
       Delta_1L  = 0.d0
       Delta_NR  = 0.d0
@@ -331,7 +332,7 @@ CONTAINS
       nz(:)     = 0.d0
       hop_plus(:) = 0.d0
       hop_minus(:) = 0.d0
-      
+
       hop_ene   = 0.d0
       e_layers  = 0.d0
       e_orth    = 0.d0

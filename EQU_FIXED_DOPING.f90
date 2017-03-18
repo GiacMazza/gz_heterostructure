@@ -145,7 +145,7 @@
          write(12,'(8f18.10)') dble(iL),R_gz(iL),GZ_doping(phi_met(iL)),opt_gz((iL-1)*3+1),opt_gz((iL-1)*3+2),opt_gz((iL-1)*3+3)
       end do
       close(12)
-
+      
       open(11,file='min_ins.out')
       !+- MINIMIZATION FROM INSULATING-LIKE INITIAL VALUES -+!
       do iL=1,L

@@ -9,7 +9,12 @@ MODULE GUTZWILLER
 !#############################################################################################!
 !(...work in prog...NEW MODULE)
 
+  complex(8),parameter                                   :: Z1 = (1.d0,0.d0)
+  complex(8),parameter                                   :: Z0 = (0.d0,0.d0)
+  complex(8),parameter                                   :: Zi = (0.d0,1.d0)
   
+
+  real(8),parameter  :: tiny=0.d0
   !+--------------------------------------------------------------+!
   !          define type containing GZ PROJECTORS                  !
   !+--------------------------------------------------------------+!
@@ -25,7 +30,13 @@ MODULE GUTZWILLER
   public :: GZ_double
   public :: GZ_normalization
   public :: slab_hubb_ene
-  
+
+  public :: GZ_hop_hd
+  public :: GZ_doping_hd
+  public :: deriveR_doublon
+  public :: deriveR_holon
+  public :: deriveR_ph_doublon
+  public :: deriveR_ph_holon
 
 CONTAINS
 
@@ -100,10 +111,11 @@ CONTAINS
     GZ_hop = GZ_hop + conjg(Phi%p1)*Phi%p2
 
     GZ_hop = GZ_hop*sqrt(2.d0/(1-x*x))
-
-    
     return
   end function GZ_hop
+
+
+  
 
 
   !---> double occupancy  
@@ -142,6 +154,89 @@ CONTAINS
     end do
     return
   end function slab_hubb_ene
+
+  !##################################################################!
+  !           COMPUTATION WITH HOLONS AND DOUBLONS                   !
+  !##################################################################!
+
+  elemental function GZ_hop_hd(doublon,holon,ph_doublon,ph_holon)
+    real(8),intent(in) :: doublon,holon,ph_doublon,ph_holon 
+    complex(8) :: GZ_hop_hd
+    real(8) :: x,p1
+    x=GZ_doping_hd(doublon,holon,ph_doublon,ph_holon)
+    p1 = 1.d0-holon-doublon
+    GZ_hop_hd = sqrt(2.d0*p1/(1-x*x))*(sqrt(abs(holon))*Exp(Zi*ph_holon)+sqrt(abs(doublon))*Exp(-Zi*ph_doublon))
+    return
+  end function GZ_hop_hd
+
+
+  elemental function GZ_doping_hd(doublon,holon,ph_doublon,ph_holon)
+    real(8),intent(in) :: doublon,holon,ph_doublon,ph_holon 
+    complex(8) :: GZ_doping_hd
+    real(8) :: x,n0
+    GZ_doping_hd = (holon - doublon)
+    return
+  end function GZ_doping_hd
+
+
+  elemental function deriveR_doublon(doublon,holon,ph_doublon,ph_holon) result(dr_dd)
+    real(8),intent(in) :: doublon,holon,ph_doublon,ph_holon 
+    complex(8) :: dr_dd
+    real(8) :: x,p1
+    complex(8) :: R
+    x  = GZ_doping_hd(doublon,holon,ph_doublon,ph_holon)
+    p1 = 1.d0 - holon - doublon
+    R = GZ_hop_hd(doublon,holon,ph_doublon,ph_holon)
+    !
+    dr_dd = -x/(1.d0-x*x)*R + sqrt(2.d0/(1.d0-x*x))* &
+         ( -dsqrt(dabs(holon))*Exp(Zi*ph_holon)/2.d0/dsqrt(dabs(p1)) + ( 1.d0-2.d0*doublon-holon )*Exp(-Zi*ph_doublon)/2.d0/dsqrt(dabs(doublon*p1)) )
+    
+    ! dr_dd = -x/(1.d0-x*x)*R + sqrt(2.d0/(1.d0-x*x))* &
+    !      ( -holon*Exp(Zi*ph_holon)/2.d0/(sqrt(holon*p1)) + ( 1.d0-2.d0*doublon-holon )*Exp(-Zi*ph_doublon)/2.d0/(sqrt(doublon*p1)) )
+    !
+  end function deriveR_doublon
+
+
+  elemental function deriveR_holon(doublon,holon,ph_doublon,ph_holon) result(dr_dh)
+    real(8),intent(in) :: doublon,holon,ph_doublon,ph_holon 
+    complex(8) :: dr_dh
+    real(8) :: x,p1
+    complex(8) :: R
+    x  = GZ_doping_hd(doublon,holon,ph_doublon,ph_holon)
+    p1 = 1.d0 - holon - doublon
+    R = GZ_hop_hd(doublon,holon,ph_doublon,ph_holon)
+    ! dr_dh = x/(1.d0 - x*x)*R + sqrt(2.d0/(1.d0 - x*x))* &
+    !      ( (1.d0 - 2.d0*holon-doublon)*Exp(Zi*ph_holon)/2.d0/(sqrt(holon*p1)) - doublon*Exp(-Zi*ph_doublon)/2.d0/(sqrt(doublon*p1)) )
+    dr_dh = x/(1.d0 - x*x)*R + sqrt(2.d0/(1.d0 - x*x))* &
+         ( (1.d0 - 2.d0*holon-doublon)*Exp(Zi*ph_holon)/2.d0/dsqrt(dabs(holon*p1)) - dsqrt(dabs(doublon))*Exp(-Zi*ph_doublon)/2.d0/dsqrt(p1) )
+  end function deriveR_holon
+
+
+  elemental function deriveR_ph_doublon(doublon,holon,ph_doublon,ph_holon) result(dr_dpd)
+    real(8),intent(in) :: doublon,holon,ph_doublon,ph_holon 
+    complex(8) :: dr_dpd
+    real(8) :: x,p1
+    complex(8) :: R
+    x  = GZ_doping_hd(doublon,holon,ph_doublon,ph_holon)
+    p1 = 1.d0 - holon - doublon
+    R = GZ_hop_hd(doublon,holon,ph_doublon,ph_holon)
+    dr_dpd =  -Zi*sqrt(2.d0*abs(doublon*p1)/(1.d0-x**2))*Exp(-Zi*ph_doublon)
+    !write(*,*) dr_dpd
+  end function deriveR_ph_doublon
+
+
+  elemental function deriveR_ph_holon(doublon,holon,ph_doublon,ph_holon) result(dr_dph)
+    real(8),intent(in) :: doublon,holon,ph_doublon,ph_holon 
+    complex(8) :: dr_dph
+    real(8) :: x,p1
+    complex(8) :: R
+    x  = GZ_doping_hd(doublon,holon,ph_doublon,ph_holon)
+    p1 = 1.d0 - holon - doublon
+    R = GZ_hop_hd(doublon,holon,ph_doublon,ph_holon)
+    dr_dph = Zi*sqrt(2.d0*abs(holon*p1)/(1.d0-x**2))*Exp(Zi*ph_holon)    
+  end function deriveR_ph_holon
+
+
   
   
 END MODULE GUTZWILLER

@@ -8,16 +8,18 @@ MODULE DYNAMICS
   USE GLOBAL
   use RK_IDE
   USE EQS_OF_MOTION
+  implicit none
   private
 
+  
   integer                                       ::  ik,jk,igrid
   type(vec2D)                                   ::  k
   real(8)                                       ::  ek
 
-  complex(8),dimension(:),allocatable           :: psi
+
   integer                                       :: Nsys
   real(8)                                       :: t
-
+  complex(8),dimension(:),allocatable           :: psi_t
 
   !+- time dependent observables -+!
   real(8),dimension(:,:,:),allocatable          :: nk
@@ -33,13 +35,11 @@ MODULE DYNAMICS
   real(8),dimension(:,:),allocatable            :: Docc
   real(8),dimension(:,:),allocatable            :: norm_gz
   type(gz_projector),dimension(:,:),allocatable :: gz_phi
-
-
+  
   public :: solve_dynamics
-
+  
 CONTAINS
-
-
+  
   SUBROUTINE solve_dynamics
     if(.not.real_space) then
        if(.not.kleads) then
@@ -62,6 +62,10 @@ CONTAINS
       integer :: dim,ik,iks,islab,ilayer
       logical :: iprint
       integer :: t0,t_run
+      integer :: nprint
+
+      nprint=1
+      !if(dt.le.2.d-2) nprint=10
 
       iprint = .false.
 
@@ -75,10 +79,10 @@ CONTAINS
             do it = 1,Nt
                t = t + dt
                call test_obs(it) !+- compute observables -+!
-               call print_dynamics(it)
-               psi = RK_step(Nsys,mrk,dt,t,psi,slab_lead_eom)
+               if(mod(it-1,nprint).eq.0) call print_dynamics(it)
+               psi_t = RK_step(Nsys,mrk,dt,t,psi_t,slab_lead_eom)
                call system_clock(count=t_run)
-               write(100,'(I,F18.10)') it,log(dble(t_run-t0)/10000.d0)
+               write(100,'(I4,F18.10)') it,log(dble(t_run-t0)/10000.d0)
                call eta(it,Nt)
             end do
             !+- STOP TIME EVOLUTION -+!
@@ -92,10 +96,10 @@ CONTAINS
             do it = 1,Nt
                t = t + dt
                call test_obs_kleads(it) !+- compute observables -+!
-               call print_dynamics(it)
-               psi = RK_step(Nsys,mrk,dt,t,psi,slab_lead_eom_kleads)
+               if(mod(it-1,nprint).eq.0) call print_dynamics(it)
+               psi_t = RK_step(Nsys,mrk,dt,t,psi_t,slab_lead_eom_kleads)
                call system_clock(count=t_run)
-               write(100,'(I,F18.10)') it,log(dble(t_run-t0)/10000.d0)
+               write(100,'(I4,F18.10)') it,log(dble(t_run-t0)/10000.d0)
                call eta(it,Nt)
             end do
             !+- STOP TIME EVOLUTION -+!
@@ -110,10 +114,10 @@ CONTAINS
          do it = 1,Nt
             t = t + dt
             call test_obs_real_space(it) !+- compute observables -+!
-            call print_dynamics(it)
-            psi = RK_step(Nsys,mrk,dt,t,psi,slab_lead_eom_real_space)
+            if(mod(it-1,nprint).eq.0) call print_dynamics(it)
+            psi_t = RK_step(Nsys,mrk,dt,t,psi_t,slab_lead_eom_real_space)
             call system_clock(count=t_run)
-            write(100,'(I,F18.10)') it,log(dble(t_run-t0)/10000.d0)
+            write(100,'(I4,F18.10)') it,log(dble(t_run-t0)/10000.d0)
             call eta(it,Nt)
          end do
          !+- STOP TIME EVOLUTION -+!
@@ -127,6 +131,7 @@ CONTAINS
     !+- PURPOSE: allocate arrays for the dynamics in the case of k-independent leads -+!
     subroutine allocate_dynamics
       character(len=10) :: fileout
+      integer           :: iL
       !+- time grids -+!
       allocate(t_grid(Nt),t_finer(2*Nt+1))
       if(Nt.gt.1) then
@@ -137,7 +142,7 @@ CONTAINS
       t_finer = linspace(0.d0,0.5d0*dt*real(2*Nt,8),2*Nt+1)
       !+- number of dynamical equations -+!
       Nsys = Nk_tot*(2*Nk_orth*L + L*L) + 3*L + 4*Nk_orth*Nk_orth
-      allocate(psi(Nsys))
+      allocate(psi_t(Nsys))
       write(*,*) 'allocated solution',Nsys,'(',2*Nk_orth*(2*Nk_orth+L)+L*L,'x',Nk_tot,')'      
       !+- time dependent observables -+!
       allocate(nk(Nk_tot,Nt,L),nSlab(Nt,L),hop_plus(Nt,L),hop_minus(Nt,L),hyb_left(Nt,L),hyb_right(Nt,L),eSlab(Nt,L))
@@ -165,6 +170,7 @@ CONTAINS
     !+- PURPOSE: allocate arrays for the dynamics in the case of k dependent leads -+!
     subroutine allocate_dynamics_kleads
       character(len=10) :: fileout
+      integer           :: iL
       !+- time grida -+!
       allocate(t_grid(Nt),t_finer(2*Nt+1))
       if(Nt.gt.1) then
@@ -175,7 +181,7 @@ CONTAINS
       t_finer = linspace(0.d0,0.5d0*dt*real(2*Nt,8),2*Nt+1)
       !+- number of dynamical equations -+!
       Nsys = Nk_tot*(2*Nk_orth*(2*Nk_orth+L)+L*L) + 3*L
-      allocate(psi(Nsys))
+      allocate(psi_t(Nsys))
       write(*,*) 'allocated solution',Nsys,'(',2*Nk_orth*(2*Nk_orth+L)+L*L,'x',Nk_tot,')'      
       !+- time dependent observables -+!
       allocate(nk(Nk_tot,Nt,L),nSlab(Nt,L),hop_plus(Nt,L),hop_minus(Nt,L),hyb_left(Nt,L),hyb_right(Nt,L),eSlab(Nt,L))
@@ -207,6 +213,7 @@ CONTAINS
     !+- PURPOSE: allocate arrays for the dynamics in the case of k dependent leads -+!
     subroutine allocate_dynamics_real_space
       character(len=10) :: fileout
+      integer           :: iL
       !+- time grida -+!
       allocate(t_grid(Nt),t_finer(2*Nt+1))
       if(Nt.gt.1) then
@@ -217,7 +224,7 @@ CONTAINS
       t_finer = linspace(0.d0,0.5d0*dt*real(2*Nt,8),2*Nt+1)
       !+- number of dynamical equations -+!
       Nsys = Nk_tot*L*L + 3*L
-      allocate(psi(Nsys))
+      allocate(psi_t(Nsys))
       write(*,*) 'allocated solution',Nsys,'(',L*L,'x',Nk_tot,')'      
       !+- time dependent observables -+!
       allocate(nk(Nk_tot,Nt,L),nSlab(Nt,L),hop_plus(Nt,L),hop_minus(Nt,L),hyb_left(Nt,L),hyb_right(Nt,L),eSlab(Nt,L))
@@ -313,9 +320,9 @@ CONTAINS
             ik_sys = ik_sys + 1               
             !+-----------------------+!
             if(jlead.eq.ilead) then
-               psi(ik_sys) = -Zi*(1.d0 - fermi(ekl_j,beta))
+               psi_t(ik_sys) = -Zi*(1.d0 - fermi(ekl_j,beta))
             else
-               psi(ik_sys) = Z0
+               psi_t(ik_sys) = Z0
             end if
             test_lead = test_lead + 1
          end do
@@ -334,7 +341,7 @@ CONTAINS
                !+- update global index -+!
                ik_sys = ik_sys + 1
                !+-----------------------+!
-               psi(ik_sys) = Z0
+               psi_t(ik_sys) = Z0
                test_hyb = test_hyb + 1
             end do
          end do
@@ -349,7 +356,7 @@ CONTAINS
                !+- update global index -+!
                ik_sys = ik_sys + 1
                !+-----------------------+!
-               psi(ik_sys) = Gslab_equ(ik,iSlab,jSlab)
+               psi_t(ik_sys) = Gslab_equ(ik,iSlab,jSlab)
                test_slab = test_slab + 1
             end do
          end do
@@ -376,11 +383,11 @@ CONTAINS
             test_gz = test_gz + 1
             select case(igz)
             case(1)
-               psi(ik_sys) = gz_phi(iSlab)%p0
+               psi_t(ik_sys) = gz_phi(iSlab)%p0
             case(2)
-               psi(ik_sys) = gz_phi(iSlab)%p1
+               psi_t(ik_sys) = gz_phi(iSlab)%p1
             case(3)
-               psi(ik_sys) = gz_phi(iSlab)%p2
+               psi_t(ik_sys) = gz_phi(iSlab)%p2
             end select
          end do
       end do
@@ -409,7 +416,7 @@ CONTAINS
             do iSlab=1,L
                if(t_finer(it_finer).gt.cut_time.and.iSlab.eq.1) then
                   !e_loc(iSlab,it_finer) = -(muL(it_finer) + (muR(it_finer) - muL(it_finer) )*dble(iSlab-1)/dble(L-1))
-                  e_loc(iSlab,it_finer) = -(muL(it_finer) - muR(it_finer))/dble(L+1)/2.d0*dble(L+1-2*iSlab)
+                  e_loc(iSlab,it_finer) = -(muL(it_finer) - muR(it_finer))/dble(L+1)/2.d0*dble(L+1-2*iSlab) + chem_equ
                else
                   e_loc(iSlab,it_finer) = 0.d0
                end if
@@ -482,16 +489,16 @@ CONTAINS
                if(jlead.eq.ilead) then
                   select case(lead_type)
                   case('3d_tb')
-                     psi(ik_sys) = -Zi*(1.d0 - fermi(ekl_j+ek,beta))
+                     psi_t(ik_sys) = -Zi*(1.d0 - fermi(ekl_j+ek,beta))
                   case('generic_bath')
                      if(jlead.le.Nk_orth) then
-                        psi(ik_sys) = -Zi*(1.d0 - fermi(ekl_j,beta))
+                        psi_t(ik_sys) = -Zi*(1.d0 - fermi(ekl_j,beta))
                      else
-                        psi(ik_sys) = -Zi*(1.d0 - fermi(ekl_j,beta))
+                        psi_t(ik_sys) = -Zi*(1.d0 - fermi(ekl_j,beta))
                      end if
                   end select
                else
-                  psi(ik_sys) = Z0
+                  psi_t(ik_sys) = Z0
                end if
             end do
          end do
@@ -502,7 +509,7 @@ CONTAINS
          do iSlab = 1,L         
             do ihyb = 1,dimHyb
                ik_sys = ik_sys + 1
-               psi(ik_sys) = Z0
+               psi_t(ik_sys) = Z0
             end do
          end do
          !+---------+!
@@ -513,7 +520,7 @@ CONTAINS
             do jslab = 1,L
                itest = itest +1
                ik_sys = ik_sys + 1
-               psi(ik_sys) = Gslab_equ(ik,iSlab,jSlab)
+               psi_t(ik_sys) = Gslab_equ(ik,iSlab,jSlab)
             end do
          end do
       end do
@@ -536,11 +543,11 @@ CONTAINS
             ik_sys = ik_sys + 1
             select case(igz)
             case(1)
-               psi(ik_sys) = gz_phi(iSlab)%p0
+               psi_t(ik_sys) = gz_phi(iSlab)%p0
             case(2)
-               psi(ik_sys) = gz_phi(iSlab)%p1
+               psi_t(ik_sys) = gz_phi(iSlab)%p1
             case(3)
-               psi(ik_sys) = gz_phi(iSlab)%p2
+               psi_t(ik_sys) = gz_phi(iSlab)%p2
             end select
          end do
       end do
@@ -566,7 +573,7 @@ CONTAINS
                e_loc(iSlab,it_finer) = 0.d0
                if(t_finer(it_finer).gt.time_bias) then
                   !e_loc(iSlab,it_finer) = -(muL(it_finer) + (muR(it_finer) - muL(it_finer) )*dble(iSlab-1)/dble(L-1))
-                  e_loc(iSlab,it_finer) = -(muL(it_finer) - muR(it_finer))/dble(L+1)/2.d0*dble(L+1-2*iSlab)
+                  e_loc(iSlab,it_finer) = -(muL(it_finer) - muR(it_finer))/dble(L+1)/2.d0*dble(L+1-2*iSlab) 
                else
                   e_loc(iSlab,it_finer) = 0.d0
                end if
@@ -622,7 +629,7 @@ CONTAINS
             do jslab = 1,L
                itest = itest +1
                ik_sys = ik_sys + 1
-               psi(ik_sys) = Gslab_equ(ik,iSlab,jSlab)
+               psi_t(ik_sys) = Gslab_equ(ik,iSlab,jSlab)
             end do
          end do
       end do
@@ -645,11 +652,11 @@ CONTAINS
             ik_sys = ik_sys + 1
             select case(igz)
             case(1)
-               psi(ik_sys) = gz_phi(iSlab)%p0
+               psi_t(ik_sys) = gz_phi(iSlab)%p0
             case(2)
-               psi(ik_sys) = gz_phi(iSlab)%p1
+               psi_t(ik_sys) = gz_phi(iSlab)%p1
             case(3)
-               psi(ik_sys) = gz_phi(iSlab)%p2
+               psi_t(ik_sys) = gz_phi(iSlab)%p2
             end select
          end do
       end do
@@ -696,9 +703,9 @@ CONTAINS
     !+- PURPOSE COMPUTE TIME DEPENDENT OBSERVABLES -+!
     subroutine test_obs(it)
       integer            :: it
-      integer            :: ilayer
+      integer            :: ilayer,iL
       integer            :: dim,iSlab
-      integer            :: ihyb,ik_sys0
+      integer            :: ihyb,ik_sys0,ik_sys
       integer            :: ik_sys_hop
       integer            :: igz
       integer            :: ileads
@@ -711,9 +718,9 @@ CONTAINS
 
       igz = Nsys - 3*L
       do ilayer = 1,L
-         gz_phi(it,ilayer)%p0 = psi(igz+1)
-         gz_phi(it,ilayer)%p1 = psi(igz+2)
-         gz_phi(it,ilayer)%p2 = psi(igz+3)
+         gz_phi(it,ilayer)%p0 = psi_t(igz+1)
+         gz_phi(it,ilayer)%p1 = psi_t(igz+2)
+         gz_phi(it,ilayer)%p2 = psi_t(igz+3)
          igz = igz + 3
       end do
       r_gz(it,:)    = GZ_hop(gz_phi(it,:))
@@ -744,7 +751,7 @@ CONTAINS
                ik_sys = ik_sys + 1
                kp = k_orth(ihyb)
                vk = get_bath_coupling(kp,'L',time)
-               hyb_kL(iL) = hyb_kL(iL) - vk*psi(ik_sys)
+               hyb_kL(iL) = hyb_kL(iL) - vk*psi_t(ik_sys)
             end do
             hyb_left(it,iL) = hyb_left(it,iL) + 2.d0*Zi*hyb_kL(iL)*wt(ik)
             !+- right hybridization -+!
@@ -755,7 +762,7 @@ CONTAINS
                ik_sys = ik_sys + 1
                kp = k_orth(ihyb)
                vk = get_bath_coupling(kp,'R',time)
-               hyb_kR(iL) = hyb_kR(iL) - vk*psi(ik_sys)
+               hyb_kR(iL) = hyb_kR(iL) - vk*psi_t(ik_sys)
             end do
             hyb_right(it,iL) = hyb_right(it,iL) + 2.d0*Zi*hyb_kR(iL)*wt(ik)
          end do
@@ -764,22 +771,22 @@ CONTAINS
          do ilayer = 1,L
             ik_sys = ik_sys0 + (ilayer-1)*L + ilayer
             ik_sys_hop = ik_sys + 1
-            nk(ik,it,ilayer) = 1-Zi*psi(ik_sys)
+            nk(ik,it,ilayer) = 1-Zi*psi_t(ik_sys)
             nSlab(it,ilayer) = nSlab(it,ilayer) + nk(ik,it,ilayer)*wt(ik)
             eSlab(it,ilayer) = eSlab(it,ilayer) + nk(ik,it,ilayer)*wt(ik)*ek
             if(ilayer.lt.L) then
-               hop_plus(it,ilayer) = hop_plus(it,ilayer) + 2.d0*Zi*psi(ik_sys_hop)*wt(ik)
+               hop_plus(it,ilayer) = hop_plus(it,ilayer) + 2.d0*Zi*psi_t(ik_sys_hop)*wt(ik)
                j_layer(it,ilayer) = j_layer(it,ilayer) + &
-                    2.d0*AIMAG(conjg(r_gz(it,ilayer+1))*r_gz(it,ilayer)*Zi*psi(ik_sys_hop))*wt(ik)
+                    2.d0*AIMAG(conjg(r_gz(it,ilayer+1))*r_gz(it,ilayer)*Zi*psi_t(ik_sys_hop))*wt(ik)
                n_dot(it,ilayer) = n_dot(it,ilayer) - &
-                    2.d0*AIMAG(conjg(r_gz(it,ilayer+1))*r_gz(it,ilayer)*Zi*psi(ik_sys_hop))*wt(ik)
+                    2.d0*AIMAG(conjg(r_gz(it,ilayer+1))*r_gz(it,ilayer)*Zi*psi_t(ik_sys_hop))*wt(ik)
             else
                n_dot(it,ilayer) = n_dot(it,ilayer) - 2.d0*AIMAG(Zi*r_gz(it,ilayer)*conjg(hyb_kR(ilayer)))*wt(ik)
             end if
             ik_sys_hop = ik_sys_hop - 2
             if(ilayer.gt.1) then
                n_dot(it,ilayer) = n_dot(it,ilayer) - &
-                    2.d0*AIMAG(conjg(r_gz(it,ilayer-1))*r_gz(it,ilayer)*Zi*psi(ik_sys_hop))*wt(ik)
+                    2.d0*AIMAG(conjg(r_gz(it,ilayer-1))*r_gz(it,ilayer)*Zi*psi_t(ik_sys_hop))*wt(ik)
             else
                n_dot(it,ilayer) = n_dot(it,ilayer) - 2.d0*AIMAG( r_gz(it,ilayer)*conjg(Zi*hyb_kL(ilayer)))*wt(ik)
             end if
@@ -794,9 +801,9 @@ CONTAINS
     !+- PURPOSE: compute time dependent observable in the case of k-dependent leads -+!
     subroutine test_obs_kleads(it)
       integer            :: it
-      integer            :: ilayer
+      integer            :: ilayer,iL
       integer            :: dim,iSlab
-      integer            :: ihyb,ik_sys0
+      integer            :: ihyb,ik_sys0,ik_sys
       integer            :: ik_sys_hop
       integer            :: igz
       integer            :: ileads
@@ -808,9 +815,9 @@ CONTAINS
       real(8)            :: time
       igz = Nsys - 3*L
       do ilayer = 1,L
-         gz_phi(it,ilayer)%p0 = psi(igz+1)
-         gz_phi(it,ilayer)%p1 = psi(igz+2)
-         gz_phi(it,ilayer)%p2 = psi(igz+3)
+         gz_phi(it,ilayer)%p0 = psi_t(igz+1)
+         gz_phi(it,ilayer)%p1 = psi_t(igz+2)
+         gz_phi(it,ilayer)%p2 = psi_t(igz+3)
          igz = igz + 3
       end do
       r_gz(it,:)    = GZ_hop(gz_phi(it,:))
@@ -843,7 +850,7 @@ CONTAINS
                ik_sys = ik_sys + 1
                kp = k_orth(ihyb)
                vk = get_bath_coupling(kp,'L',time)
-               hyb_kL(iL) = hyb_kL(iL) - vk*psi(ik_sys)
+               hyb_kL(iL) = hyb_kL(iL) - vk*psi_t(ik_sys)
             end do
             hyb_left(it,iL) = hyb_left(it,iL) + 2.d0*Zi*hyb_kL(iL)*wt(ik)
             !+- right hybridization -+!
@@ -854,7 +861,7 @@ CONTAINS
                ik_sys = ik_sys + 1
                kp = k_orth(ihyb)
                vk = get_bath_coupling(kp,'R',time)
-               hyb_kR(iL) = hyb_kR(iL) - vk*psi(ik_sys)
+               hyb_kR(iL) = hyb_kR(iL) - vk*psi_t(ik_sys)
             end do
             hyb_right(it,iL) = hyb_right(it,iL) + 2.d0*Zi*hyb_kR(iL)*wt(ik)
          end do
@@ -864,22 +871,22 @@ CONTAINS
          do ilayer = 1,L
             ik_sys = ik_sys0 + (ilayer-1)*L + ilayer
             ik_sys_hop = ik_sys + 1
-            nk(ik,it,ilayer) = 1-Zi*psi(ik_sys)
+            nk(ik,it,ilayer) = 1-Zi*psi_t(ik_sys)
             nSlab(it,ilayer) = nSlab(it,ilayer) + nk(ik,it,ilayer)*wt(ik)
             eSlab(it,ilayer) = eSlab(it,ilayer) + nk(ik,it,ilayer)*wt(ik)*ek
             if(ilayer.lt.L) then
-               hop_plus(it,ilayer) = hop_plus(it,ilayer) + 2.d0*Zi*psi(ik_sys_hop)*wt(ik)
+               hop_plus(it,ilayer) = hop_plus(it,ilayer) + 2.d0*Zi*psi_t(ik_sys_hop)*wt(ik)
                j_layer(it,ilayer) = j_layer(it,ilayer) + &
-                    2.d0*AIMAG(conjg(r_gz(it,ilayer+1))*r_gz(it,ilayer)*Zi*psi(ik_sys_hop))*wt(ik)
+                    2.d0*AIMAG(conjg(r_gz(it,ilayer+1))*r_gz(it,ilayer)*Zi*psi_t(ik_sys_hop))*wt(ik)
                n_dot(it,ilayer) = n_dot(it,ilayer) - &
-                    2.d0*AIMAG(conjg(r_gz(it,ilayer+1))*r_gz(it,ilayer)*Zi*psi(ik_sys_hop))*wt(ik)
+                    2.d0*AIMAG(conjg(r_gz(it,ilayer+1))*r_gz(it,ilayer)*Zi*psi_t(ik_sys_hop))*wt(ik)
             else
                n_dot(it,ilayer) = n_dot(it,ilayer) - 2.d0*AIMAG(Zi*r_gz(it,ilayer)*conjg(hyb_kR(ilayer)))*wt(ik)
             end if
             ik_sys_hop = ik_sys_hop - 2
             if(ilayer.gt.1) then
                n_dot(it,ilayer) = n_dot(it,ilayer) - &
-                    2.d0*AIMAG(conjg(r_gz(it,ilayer-1))*r_gz(it,ilayer)*Zi*psi(ik_sys_hop))*wt(ik)
+                    2.d0*AIMAG(conjg(r_gz(it,ilayer-1))*r_gz(it,ilayer)*Zi*psi_t(ik_sys_hop))*wt(ik)
             else
                n_dot(it,ilayer) = n_dot(it,ilayer) - 2.d0*AIMAG( r_gz(it,ilayer)*conjg(Zi*hyb_kL(ilayer)))*wt(ik)
             end if
@@ -904,7 +911,7 @@ CONTAINS
       integer            :: it
       integer            :: ilayer
       integer            :: dim,iSlab
-      integer            :: ihyb,ik_sys0
+      integer            :: ihyb,ik_sys0,ik_sys
       integer            :: ik_sys_hop
       integer            :: igz
       integer            :: ileads
@@ -917,9 +924,9 @@ CONTAINS
 
       igz = Nsys - 3*L
       do ilayer = 1,L
-         gz_phi(it,ilayer)%p0 = psi(igz+1)
-         gz_phi(it,ilayer)%p1 = psi(igz+2)
-         gz_phi(it,ilayer)%p2 = psi(igz+3)
+         gz_phi(it,ilayer)%p0 = psi_t(igz+1)
+         gz_phi(it,ilayer)%p1 = psi_t(igz+2)
+         gz_phi(it,ilayer)%p2 = psi_t(igz+3)
          igz = igz + 3
       end do
       r_gz(it,:)    = GZ_hop(gz_phi(it,:))
@@ -944,22 +951,22 @@ CONTAINS
          do ilayer = 1,L
             ik_sys = ik_sys0 + (ilayer-1)*L + ilayer
             ik_sys_hop = ik_sys + 1
-            nk(ik,it,ilayer) = 1-Zi*psi(ik_sys)
+            nk(ik,it,ilayer) = 1-Zi*psi_t(ik_sys)
             nSlab(it,ilayer) = nSlab(it,ilayer) + nk(ik,it,ilayer)*wt(ik)
             eSlab(it,ilayer) = eSlab(it,ilayer) + nk(ik,it,ilayer)*wt(ik)*ek
             if(ilayer.lt.L) then
-               hop_plus(it,ilayer) = hop_plus(it,ilayer) + 2.d0*Zi*psi(ik_sys_hop)*wt(ik)
+               hop_plus(it,ilayer) = hop_plus(it,ilayer) + 2.d0*Zi*psi_t(ik_sys_hop)*wt(ik)
                j_layer(it,ilayer) = j_layer(it,ilayer) + &
-                    2.d0*AIMAG(conjg(r_gz(it,ilayer+1))*r_gz(it,ilayer)*Zi*psi(ik_sys_hop))*wt(ik)
+                    2.d0*AIMAG(conjg(r_gz(it,ilayer+1))*r_gz(it,ilayer)*Zi*psi_t(ik_sys_hop))*wt(ik)
                n_dot(it,ilayer) = n_dot(it,ilayer) - &
-                    2.d0*AIMAG(conjg(r_gz(it,ilayer+1))*r_gz(it,ilayer)*Zi*psi(ik_sys_hop))*wt(ik)
+                    2.d0*AIMAG(conjg(r_gz(it,ilayer+1))*r_gz(it,ilayer)*Zi*psi_t(ik_sys_hop))*wt(ik)
             else
                n_dot(it,ilayer) = n_dot(it,ilayer) - 2.d0*AIMAG(Zi*r_gz(it,ilayer)*conjg(hyb_kR(ilayer)))*wt(ik)
             end if
             ik_sys_hop = ik_sys_hop - 2
             if(ilayer.gt.1) then
                n_dot(it,ilayer) = n_dot(it,ilayer) - &
-                    2.d0*AIMAG(conjg(r_gz(it,ilayer-1))*r_gz(it,ilayer)*Zi*psi(ik_sys_hop))*wt(ik)
+                    2.d0*AIMAG(conjg(r_gz(it,ilayer-1))*r_gz(it,ilayer)*Zi*psi_t(ik_sys_hop))*wt(ik)
             else
                n_dot(it,ilayer) = n_dot(it,ilayer) - 2.d0*AIMAG( r_gz(it,ilayer)*conjg(Zi*hyb_kL(ilayer)))*wt(ik)
             end if

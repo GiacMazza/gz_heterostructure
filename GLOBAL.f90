@@ -3,11 +3,11 @@
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 MODULE global
   USE SCIFOR
-  USE TIMER
-  USE COMMON_VARS
-  USE MATRIX
-  USE PARSE_INPUT
-  USE TOOLS
+!  USE TIMER
+!  USE CONSTANTS
+!  USE MATRIX
+!  USE PARSE_INPUT
+!  USE TOOLS
   !local modules
   USE VECTORS
   USE BZ_POINTS
@@ -50,6 +50,8 @@ MODULE global
 
   !leads chemical potential!
   real(8)                                     :: mu_L,mu_R
+  real(8)                                     :: beta_left,beta_right
+  real(8)                                     :: mu_pulseL,mu_pulseR
   real(8),dimension(:),allocatable            :: muL,muR
   real(8),dimension(:,:),allocatable          :: e_loc
   real(8)                                     :: chem_shift
@@ -63,7 +65,10 @@ MODULE global
   real(8)                                     :: dop_layer
 
   real(8)                                     :: ramp_time,time_bias,ramp_bias
-  real(8)                                     :: cut_time 
+  real(8)                                     :: cut_time,pulse_time
+
+  real(8)                                     :: eta_bath
+  real(8)                                     :: chem_equ
 
 
   !+------------------------------------------------+!
@@ -74,7 +79,7 @@ MODULE global
   logical                                     :: off_set !off_set at gamma point
   integer                                     :: Nk_orth !nr of k-points in the z-direction
   integer                                     :: ik0
-  
+  logical :: dos_plane  
 
   !+------------------------+!
   !  minimization algorithm  !
@@ -82,6 +87,7 @@ MODULE global
   integer                                     :: n_max         !maximum number of step
   integer                                     :: start_gz      !gz starting projectors
   real(8)                                     :: conv_treshold !convergence treshold
+  real(8),dimension(:),allocatable                                     :: epsik
 
 
   !+-----------------------+!
@@ -254,6 +260,9 @@ CONTAINS
     call parse_cmd_variable(lead_type           ,"LEAD_TYPE")  
     call parse_cmd_variable(dop_layer           ,"DOP_LAYER")  
 
+    call parse_cmd_variable(beta_left           ,"BETA_L")  
+    call parse_cmd_variable(beta_right           ,"BETA_R")  
+
     open(unit=10,file="used_input.out")
     write(10,nml=variables)
     close(10)
@@ -262,13 +271,6 @@ CONTAINS
 
     tot_size = 2*N+L
 
-    mu_L = 0.d0
-    mu_R = 0.d0
-
-    cut_time = 100000.d0
-
-    if(left)  mu_L= chem_shift*0.5d0
-    if(right) mu_R=-chem_shift*0.5d0
 
     select case(lead_type)
     case('3d_tb')
@@ -277,17 +279,19 @@ CONTAINS
        t_lead = W_bath*0.5d0
     end select
 
-    Nk_tot = nx_grid*(nx_grid+1)/2
+    !Nk_tot = nx_grid*(nx_grid+1)/2
 
     if(.not.Vhyb) then
        L = Slab
-       allocate(Uz(L),Gslab_equ(Nk_tot,L,L),eqPhi(L))
+       !allocate(Uz(L),Gslab_equ(Nk_tot,L,L),eqPhi(L))
+       allocate(Uz(L),eqPhi(L))
        Uz = U
        Uz(1) = U*1.d0
     else
        if(.not.real_space) Nt=0
        L = Slab + 2*Nk_orth
-       allocate(Uz(L),Gslab_equ(Nk_tot,L,L),eqPhi(L))
+       !allocate(Uz(L),Gslab_equ(Nk_tot,L,L),eqPhi(L))
+       allocate(Uz(L),eqPhi(L))
        Uz(1:Nk_orth) = 0.d0
        Uz(Nk_orth+1:Nk_orth+Slab) = U
        Uz(Nk_orth+Slab+1:L) = 0.d0
@@ -295,7 +299,8 @@ CONTAINS
           write(*,*) Uz(ik0),U
        end do
     end if
-
+    
+    eta_bath=0.d0
 
   END SUBROUTINE read_input
 
