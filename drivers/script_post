@@ -1,0 +1,1 @@
+for l_file in Layer*; do trans \#9 ${l_file} > d_${l_file}; done; trans \#1 Slab.out | paste  d_L* | trans \(\#1+\#2+\#3+\#4+\#5+\#6+\#7+\#8+\#9+\#10\)*1.2 | paste Slab.out - | trans \#1 \#2 \#3 \#4 \#5+\#7 \#5 \#7 \#6 > finalSlab.out
