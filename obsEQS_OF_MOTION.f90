@@ -1,4 +1,4 @@
-MODULE OBS_EQS_OF_MOTION
+ MODULE OBS_EQS_OF_MOTION
   USE GLOBAL
 
 CONTAINS
@@ -1310,6 +1310,18 @@ CONTAINS
              !+- SLAB GF EQUATIONS OF MOTION -+!
              !+-------------------------------+!
              f(ik_sys) = -Zi*ek*( ABS(gz_R(iSlab))**2 - ABS(gz_R(jSlab))**2 )*GSlab(iSlab,jSlab)    
+             
+             !+- here add the 'dissipation' -+!
+             !f(ik_sys) = f(ik_sys) + k_diss*(1.d0-2.d0*fermi(ek,beta_diss))*( ABS(gz_R(iSlab))**2 - ABS(gz_R(jSlab))**2 )*GSlab(iSlab,jSlab) !
+             !
+
+             f(ik_sys) = f(ik_sys) - 2.d0*k_diss*fermi(ek,beta)*GSlab(iSlab,jSlab)!*ABS(gz_R(iSlab))**2
+             f(ik_sys) = f(ik_sys) - 2.d0*k_diss*(1.0-fermi(ek,beta))*GSlab(iSlab,jSlab)!*ABS(gz_R(jSlab))**2
+             if(iSlab.eq.jSlab) then
+                f(ik_sys) = f(ik_sys) - Zi*2.d0*k_diss*(1.0-fermi(ek,beta))!*ABS(gz_R(jSlab))**2
+             end if
+             !
+
              if(iSlab.gt.1) then
                 f(ik_sys) = f(ik_sys) + Zi*conjg(gz_R(iSlab))*gz_R(iSlab-1)*Gslab(iSlab-1,jSlab)*Exp(Zi*phase(iSlab-1))*(-1.*Hslab(iSlab,iSlab-1)) !
              end if
@@ -1418,6 +1430,7 @@ CONTAINS
           !+-----------------------------+!
        end if
        f(ik_sys) = cmplx(dreal(f(ik_sys)),0.d0)
+       f(ik_sys) = f(ik_sys) - eta_bath*y(ik_sys)
 
        !+- holons -+!
        ik_sys = ik_sys + 1
@@ -1458,7 +1471,7 @@ CONTAINS
           !+-----------------------------+!
        end if
        f(ik_sys) = cmplx(dreal(f(ik_sys)),0.d0)
-       
+       f(ik_sys) = f(ik_sys) - eta_bath*y(ik_sys)       
     end do
     deallocate(gz_phi)
     return

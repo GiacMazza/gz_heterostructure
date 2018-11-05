@@ -25,6 +25,7 @@ MODULE SLAB_EQU
   real(8) :: beta_equ
   real(8) :: beta_neq
 
+  integer :: Lneq
 
   public :: GZ_equilibrium
     
@@ -38,13 +39,19 @@ CONTAINS
   !     -Iterate                                                                  !
   !+-----------------------------------------------------------------------------+!
 
-  SUBROUTINE GZ_equilibrium(temp_,Gequ,PHIequ)
+  SUBROUTINE GZ_equilibrium(temp_,Gequ,PHIequ,Lneq_)
     integer :: i,j,ik,iL
+    integer,optional :: Lneq_
     real(8) :: Qstep,nki,nki_plus
-    real(8),dimension(2),optional :: temp_
+    real(8),dimension(2) :: temp_
     real(8),dimension(:),allocatable :: Zold,test_norm
-    complex(8),dimension(:,:,:),allocatable,optional :: Gequ
-    type(gz_projector),dimension(:),allocatable,optional :: PHIequ
+    complex(8),dimension(:,:,:),allocatable :: Gequ
+    type(gz_projector),dimension(:),allocatable :: PHIequ
+
+
+    Lneq=L
+    if(present(Lneq_)) Lneq=Lneq_
+
     allocate(R(L),dop(L),Zold(L),test_norm(L))
     allocate(eZ(L),eZL(N),eZR(N))
     allocate(eZnn(L-1),eZnnL(N-1),eZnnR(N-1))
@@ -55,11 +62,8 @@ CONTAINS
     R = GZ_hop (opt_Phi)
     dop = gz_doping(opt_Phi)
 
-    beta_equ=beta
-    if(present(temp_)) then
-       beta_equ=1.d0/temp_(1)
-       beta_neq=1.d0/temp_(2)
-    end if
+    beta_equ=1.d0/temp_(1)
+    beta_neq=1.d0/temp_(2)
 
     do i=1,n_max
 
@@ -83,31 +87,29 @@ CONTAINS
     dop = gz_doping(opt_Phi)
 
 
-    if(present(Gequ)) then
-       if(allocated(Gequ)) deallocate(Gequ)
-       allocate(Gequ(Nk_tot,L,L))
-       call slater_step(0,Gequ)
-       eZ=0.d0
-       hop_plus=0.d0
-       do iL=1,L
-          do ik=1,Nk_tot
-             nki = 1.d0-Zi*Gequ(ik,iL,iL)
-             eZ(iL) = eZ(iL) + nki*wt(ik)*epsik(ik)
-             if(iL.lt.L) then
-                nki_plus = -Zi*Gequ(ik,iL,iL+1)
-                hop_plus(iL) = hop_plus(iL) + 2.d0*nki_plus*wt(ik)*Hslab(iL,iL+1)
-             end if
-          end do
-       end do
 
-    end if
-    if(present(PHIequ)) then
-       if(allocated(PHIequ)) deallocate(PHIequ)
-       allocate(PHIequ(L))
-       PHIequ(:)%p0 = opt_phi(:)%p0
-       PHIequ(:)%p1 = opt_phi(:)%p1
-       PHIequ(:)%p2 = opt_phi(:)%p2
-    end if
+    if(allocated(Gequ)) deallocate(Gequ)
+    allocate(Gequ(Nk_tot,L,L))
+    call slater_step(0,Gequ)
+    eZ=0.d0
+    hop_plus=0.d0
+    do iL=1,L
+       do ik=1,Nk_tot
+          nki = 1.d0-Zi*Gequ(ik,iL,iL)
+          eZ(iL) = eZ(iL) + nki*wt(ik)*epsik(ik)
+          if(iL.lt.L) then
+             nki_plus = -Zi*Gequ(ik,iL,iL+1)
+             hop_plus(iL) = hop_plus(iL) + 2.d0*nki_plus*wt(ik)*Hslab(iL,iL+1)
+          end if
+       end do
+    end do
+
+    if(allocated(PHIequ)) deallocate(PHIequ)
+    allocate(PHIequ(L))
+    PHIequ(:)%p0 = opt_phi(:)%p0
+    PHIequ(:)%p1 = opt_phi(:)%p1
+    PHIequ(:)%p2 = opt_phi(:)%p2
+
 
     open(10,file='equ_gz.out',position='append')
     do i=1,L
@@ -183,7 +185,7 @@ CONTAINS
     complex(8),dimension(:,:),allocatable       :: H
     real(8),dimension(:),allocatable            :: w
     real(8),dimension(:),allocatable            :: nz,nkz
-    real(8)     :: R_ave
+    real(8)     :: R_ave,beta_qp
     character(len=1)        :: jobz
     character(len=1)        :: uplo
     jobz = 'V'
@@ -322,9 +324,10 @@ CONTAINS
       !    end if
       ! end do
 
+
       if(pbc) then
-         H(1,L) = -conjg(r(1))*r(L)
-         H(L,1) = -conjg(r(L))*r(1)
+         H(1,L) = conjg(r(1))*r(L)*Hslab(1,2)
+         H(L,1) = conjg(r(L))*r(1)*Hslab(2,1)
       end if
 
 
@@ -336,11 +339,16 @@ CONTAINS
       integer,intent(in) :: ik
       complex(8),dimension(L,L) :: Gk
       integer :: i,j,iE
+      
       do i=1,L
          do j=1,L
             Gk(i,j) = 0.d0
             do iE = 1,L
-               Gk(i,j) = Gk(i,j) + Zi*conjg(H(j,iE))*H(i,iE)*fermi(w(iE),beta_neq)
+               if(i.le.Lneq.and.j.le.Lneq) then
+                  Gk(i,j) = Gk(i,j) + Zi*conjg(H(j,iE))*H(i,iE)*fermi(w(iE),beta_neq)
+               else
+                  Gk(i,j) = Gk(i,j) + Zi*conjg(H(j,iE))*H(i,iE)*fermi(w(iE),beta_equ)
+               end if
             end do
             if(i.eq.j) then
                Gk(i,j) = Gk(i,j) - Zi
@@ -356,16 +364,22 @@ CONTAINS
       integer :: i,j
       integer :: i_slab
       integer :: iL,iR
-      real(8) :: ek
+      real(8) :: ek,beta_qp
+      beta_qp = beta_equ
       nkz(:) = 0.d0
       ek = epsik(ik)
       do i=1,L
          do j=1,L
-            nkz(j) = nkz(j) + abs(H(j,i))**2*wt(ik)*fermi(w(i),beta_equ)
-            eZ(j) = eZ(j) + 2.d0*ek*abs(H(j,i))**2*wt(ik)*fermi(w(i),beta_equ)
+            ! if(i.le.Lneq.and.j.le.Lneq) then
+            !    beta_qp=beta_neq
+            ! else
+            !    beta_qp=beta_equ
+            ! end if
+            nkz(j) = nkz(j) + abs(H(j,i))**2*wt(ik)*fermi(w(i),beta_qp)
+            eZ(j) = eZ(j) + 2.d0*ek*abs(H(j,i))**2*wt(ik)*fermi(w(i),beta_qp)
             if(j.lt.L) then
-               hop_plus(j) = hop_plus(j) + 2.d0*conjg(H(j+1,i))*H(j,i)*wt(ik)*fermi(w(i),beta_equ)
-               hop_minus(j) = hop_minus(j) + 2.d0*conjg(H(j,i))*H(j+1,i)*wt(ik)*fermi(w(i),beta_equ)
+               hop_plus(j) = hop_plus(j) + 2.d0*conjg(H(j+1,i))*H(j,i)*wt(ik)*fermi(w(i),beta_qp)
+               hop_minus(j) = hop_minus(j) + 2.d0*conjg(H(j,i))*H(j+1,i)*wt(ik)*fermi(w(i),beta_qp)
             end if
          end do
       end do

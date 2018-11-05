@@ -39,6 +39,7 @@ MODULE global
   !hoppings (tslab is the unit of energy)
   real(8)                                     :: t_lead !
   real(8)                                     :: t_perp !
+  real(8)                                     :: k_diss,beta_diss
   real(8),dimension(:,:),allocatable                                     :: Hslab !
   logical                                     :: Vhyb   !Hybridization potential
   real(8)                                     :: vL,vR
@@ -77,6 +78,7 @@ MODULE global
   ! k-grid details
   !+------------------------------------------------+!
   integer                                     :: nx_grid !nr of points in the x direction
+  integer                                     :: Nprint
   integer                                     :: Nk_tot  !total nr of k-points
   logical                                     :: off_set !off_set at gamma point
   integer                                     :: Nk_orth !nr of k-points in the z-direction
@@ -216,19 +218,19 @@ CONTAINS
     dop_layer           = 0.d0
 
 
-    inquire(file="input_slab.in",exist=control)    
-    if(control)then
-       open(unit=10,file="input_slab.in")
-       read(10,nml=variables)
-       close(10)
-    else
-       print*,"Can not find INPUT file"
-       print*,"Printing a default version in default.input_slab.in"
-       open(50,file="default.input_slab.in")
-       write(50,nml=variables)
-       write(50,*)""
-       stop
-    endif
+    ! inquire(file="input_slab.in",exist=control)    
+    ! if(control)then
+    !    open(unit=10,file="input_slab.in")
+    !    read(10,nml=variables)
+    !    close(10)
+    ! else
+    !    print*,"Can not find INPUT file"
+    !    print*,"Printing a default version in default.input_slab.in"
+    !    open(50,file="default.input_slab.in")
+    !    write(50,nml=variables)
+    !    write(50,*)""
+    !    stop
+    ! endif
 
 
 
@@ -249,7 +251,8 @@ CONTAINS
     call parse_input_variable(vL                  ,"VL",INPUTunit,default=vL)       
     call parse_input_variable(vR                  ,"VR",INPUTunit,default=vR)        
     call parse_input_variable(t_lead              ,"T_LEAD",INPUTunit,default=t_lead)        
-    call parse_input_variable(t_perp              ,"T_PERP",INPUTunit,default=t_perp)        
+    call parse_input_variable(t_perp              ,"T_PERP",INPUTunit,default=t_perp)
+    call parse_input_variable(eta_bath                  ,"eta_bath",INPUTunit,default=0.d0)               
     call parse_input_variable(Vhyb                ,"VHYB",INPUTunit,default=Vhyb)        
     call parse_input_variable(chem_shift          ,"CHEM_SHIFT",INPUTunit,default=chem_shift)
     call parse_input_variable(left                ,"LEFT",INPUTunit,default=left)
@@ -270,6 +273,9 @@ CONTAINS
     call parse_input_variable(dop_layer           ,"DOP_LAYER",INPUTunit,default=dop_layer)  
     call parse_input_variable(beta_left           ,"BETA_L",INPUTunit,default=1000.d0)  
     call parse_input_variable(beta_right           ,"BETA_R",INPUTunit,default=1000.d0)  
+    call parse_input_variable(Nprint           ,"Nprint",INPUTunit,default=1)  
+    call parse_input_variable(k_diss           ,"k_diss",INPUTunit,default=0.d0)  
+    call parse_input_variable(beta_diss           ,"beta_diss",INPUTunit,default=100.d0)  
 
 
     ! call parse_cmd_variable(Slab                ,"L")
