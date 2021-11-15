@@ -8,6 +8,8 @@ MODULE OBS_DYNAMICS
   USE GLOBAL
   use RK_IDE
   USE OBS_EQS_OF_MOTION
+  USE BZ_POINTS
+  USE ELECTRIC_FIELD
   implicit none
   private
 
@@ -30,18 +32,28 @@ MODULE OBS_DYNAMICS
   complex(8),dimension(:,:),allocatable         :: hyb_left,hyb_right
   real(8),dimension(:,:),allocatable            :: nSlab
   real(8),dimension(:,:),allocatable            :: eSlab
+  real(8),dimension(:),allocatable            :: eSlab_init
+  real(8),dimension(:,:),allocatable            :: eSlab_qp
   real(8),dimension(:,:),allocatable            :: x_gz
   complex(8),dimension(:,:),allocatable         :: r_gz
   real(8),dimension(:,:),allocatable            :: Docc
   real(8),dimension(:,:),allocatable            :: norm_gz
   type(gz_projector),dimension(:,:),allocatable :: gz_phi
   real(8),dimension(:,:),allocatable            :: doublons,holons,ph_doublons,ph_holons
+  real(8),dimension(:),allocatable :: Avecpot
+  real(8),dimension(:),allocatable :: Eold
+  real(8),dimension(:,:),allocatable :: Jtherm,dotEnergy
+  !
+  real(8),dimension(:,:),allocatable :: heat_flux
+  real(8),dimension(:,:),allocatable :: Teff
+  !
 
   public :: solve_observables_dynamics
 
   public :: deallocate_dynamics,allocate_dynamics
   public :: evolve
   public :: initial_condition
+  public :: get_GK,overwrite_GKl
 
 CONTAINS
 
@@ -49,7 +61,7 @@ CONTAINS
     deallocate(t_grid,t_finer)    
     deallocate(psi_t)
     !+- time dependent observables -+!
-    deallocate(nk,nSlab,hop_plus,hop_minus,hyb_left,hyb_right,eSlab)
+    deallocate(nk,nSlab,hop_plus,hop_minus,hyb_left,hyb_right,eSlab,eSlab_qp,eSlab_init)
     deallocate(j_layer,n_dot)
     !+- gutzwiller observables -+!
     deallocate(gz_phi,x_gz,r_gz,Docc,norm_gz)
@@ -57,6 +69,9 @@ CONTAINS
     deallocate(vk_L,vk_R)
     deallocate(muL,muR)
     deallocate(e_loc,Uz_time)
+    deallocate(ek_time)
+    deallocate(Eold,Jtherm,dotEnergy)
+    deallocate(heat_flux,Teff)
   end subroutine deallocate_dynamics
   !
   !
@@ -82,6 +97,11 @@ CONTAINS
     t_finer = linspace(0.d0,0.5d0*dt*real(2*Nt,8),2*Nt+1)
 
 
+    call get_Afield(t_finer,Avecpot)
+    !stop
+    !call set_efield_vector(t_grid)
+
+
     !+- THIS IS THE BIG CHANGE -+!
     Nsys = Nk_tot*(2*Nk_orth*(2*Nk_orth+L)+L*L) + 4*L
     if(present(Nsys_)) Nsys_=Nsys
@@ -89,10 +109,11 @@ CONTAINS
 
     !write(*,*) Nk_tot,Nk_orth
 
-    allocate(psi_t(Nsys))
+    allocate(psi_t(Nsys));psi_t=0.d0
     write(*,*) 'allocated solution',Nsys,'(',2*Nk_orth*(2*Nk_orth+L)+L*L,'x',Nk_tot,')'      
     !+- time dependent observables -+!
-    allocate(nk(Nk_tot,Nt,L),nSlab(Nt,L),hop_plus(Nt,L),hop_minus(Nt,L),hyb_left(Nt,L),hyb_right(Nt,L),eSlab(Nt,L))
+    allocate(nk(Nk_tot,Nt,L),nSlab(Nt,L),hop_plus(Nt,L),hop_minus(Nt,L),hyb_left(Nt,L),hyb_right(Nt,L),eSlab(Nt,L),eSlab_qp(Nt,L))
+    allocate(eSlab_init(L))
     allocate(j_layer(Nt,L),n_dot(Nt,L))
     !+- gutzwiller observables -+!
     allocate(gz_phi(Nt,L),x_gz(Nt,L),r_gz(Nt,L),Docc(Nt,L),norm_gz(Nt,L))
@@ -101,8 +122,9 @@ CONTAINS
 
     allocate(vk_L(Nk_orth,2*Nt+1),vk_R(Nk_orth,2*Nt+1))
     allocate(muL(2*Nt+1),muR(2*Nt+1))
-    allocate(e_loc(L,2*Nt+1),Uz_time(L,2*Nt+1))
-
+    allocate(e_loc(L,2*Nt+1),Uz_time(L,2*Nt+1),ek_time(L,Nk_tot,2*Nt+1))
+    allocate(Eold(L),Jtherm(Nt,L),dotEnergy(Nt,L))
+    allocate(heat_flux(Nt,L),Teff(Nt,L))
 
     !+- OPEN OUTPUT FILES -+!
     if(iprint_) then
@@ -113,6 +135,8 @@ CONTAINS
           write(fileout,'(I3.3)') iL
           open(unit=200+iL,file='Layer_'//trim(fileout)//'.out')
           open(unit=500+iL,file='Gz_layer_'//trim(fileout)//'.out')
+          open(unit=700+iL,file='nk_'//trim(fileout)//'.out')
+
        end do
        open(unit=10,file='Slab.out')
     end if
@@ -168,10 +192,87 @@ CONTAINS
     end if
   end subroutine evolve
 
+
+  subroutine get_GK(psi,Gk)
+    complex(8),dimension(:) :: psi
+    complex(8),dimension(Nk_tot,L,L) :: Gk
+    integer            :: ilayer,jLayer
+    integer            :: dim,iSlab,iL
+    integer            :: ihyb,ik_sys0,ik_sys
+    integer            :: ik_sys_hop
+    integer            :: igz
+    integer            :: ileads
+    !
+    if(size(psi).ne.Nsys) stop "wrong size in get_GK"    
+    dim = 2*Nk_orth*(2*Nk_orth+L)+L*L
+    !
+    do ik = 1,Nk_tot
+       !+- SLAB GREEN FUNCTION -+!
+       !ik_sys = (ik-1)*(dim)
+       ik_sys0 = (ik-1)*dim + (2*Nk_orth)**2   
+       ik_sys0 = ik_sys0 + 2*Nk_orth*L
+       !+- 
+       ik_sys=ik_sys0
+       do ilayer = 1,L
+          do jLayer=1,L
+             ik_sys = ik_sys + 1
+             Gk(ik,iLayer,jLayer) = psi(ik_sys)
+          end do
+       end do
+    end do
+  end subroutine get_GK
+
+
+  
+  subroutine overwrite_GKl(psi,Gk)
+    complex(8),dimension(:) :: psi
+    complex(8),dimension(:,:,:) :: Gk
+    integer            :: ilayer,jLayer,L_over
+    integer            :: dim,iSlab,iL
+    integer            :: ihyb,ik_sys0,ik_sys
+    integer            :: ik_sys_hop
+    integer            :: igz
+    integer            :: ileads
+    integer :: tmp_unit
+
+    if(size(psi).ne.Nsys) stop "wrong size in overwrite_GKl"    
+    if(size(Gk,1).ne.Nk_tot) stop "wrong size Nk_tot in overwrite_GKl"
+    L_over=size(Gk,2)
+    write(*,*) 'L_over',L_over    
+    dim = 2*Nk_orth*(2*Nk_orth+L)+L*L
+    !
+    do ik = 1,Nk_tot
+       !+- SLAB GREEN FUNCTION -+!
+       ik_sys0 = (ik-1)*dim + (2*Nk_orth)**2   
+       ik_sys0 = ik_sys0 + 2*Nk_orth*L
+       !+- 
+       ik_sys=ik_sys0
+       do ilayer = 1,L_over
+          do jLayer=1,L_over
+             ik_sys = ik_sys + 1
+             psi(ik_sys)=Gk(ik,iLayer,jLayer) 
+             
+             ! if(iLayer.eq.jLayer) then
+             !    tmp_unit=900+iLayer
+             !    write(tmp_unit,'(5(F18.10))') epsik(ik_ord(ik)),1-Zi*psi(ik_sys)
+             ! end if
+
+          end do
+
+          !nk(ik_ord(ik),it,iL)!,vec_k(ik)%x,vec_k(ik)%y,epsik(ik)
+          
+
+          
+       end do
+    end do    
+  end subroutine overwrite_GKl
+  
+  
+
   subroutine test_obs(it)
     integer            :: it
     integer            :: ilayer
-    integer            :: dim,iSlab,iL
+    integer            :: dim,iSlab,iL,jSlab
     integer            :: ihyb,ik_sys0,ik_sys
     integer            :: ik_sys_hop
     integer            :: igz
@@ -183,6 +284,8 @@ CONTAINS
     real(8)            :: vk,kp,ek
     real(8)            :: time
     real(8),dimension(L) :: phase 
+    real(8)            :: de_min
+    integer :: ik_temp
 
     time=t_grid(it)
     j_time = 2*(time+1.d-5)/dt + 1
@@ -212,6 +315,8 @@ CONTAINS
     !+- compute one-body opreators on the uncorrelated wave-function -+!
     nSlab(it,:)     = 0.d0
     eSlab(it,:)     = 0.d0
+    eSlab_qp(it,:)  = 0.d0
+    if(it.eq.1) eSlab_init= 0.d0
     hyb_right(it,:) = 0.d0
     hyb_left(it,:)  = 0.d0
     hop_plus(it,:)  = 0.d0
@@ -255,13 +360,13 @@ CONTAINS
 
           nk(ik,it,ilayer) = 1-Zi*psi_t(ik_sys)
           nSlab(it,ilayer) = nSlab(it,ilayer) + nk(ik,it,ilayer)*wt(ik)
-          eSlab(it,ilayer) = eSlab(it,ilayer) + nk(ik,it,ilayer)*wt(ik)*ek
+          eSlab_qp(it,ilayer) = eSlab_qp(it,ilayer) + nk(ik,it,ilayer)*wt(ik)*ek
           if(ilayer.lt.L) then
-             hop_plus(it,ilayer) = hop_plus(it,ilayer) + 2.d0*Zi*psi_t(ik_sys_hop)*wt(ik)
+             hop_plus(it,ilayer) = hop_plus(it,ilayer) + 2.d0*Zi*psi_t(ik_sys_hop)*wt(ik)*t_perp
              j_layer(it,ilayer) = j_layer(it,ilayer) + &
-                  2.d0*AIMAG(conjg(r_gz(it,ilayer+1))*r_gz(it,ilayer)*Zi*psi_t(ik_sys_hop))*wt(ik)
+                  2.d0*AIMAG(conjg(r_gz(it,ilayer+1))*r_gz(it,ilayer)*Zi*psi_t(ik_sys_hop))*wt(ik)*t_perp
              n_dot(it,ilayer) = n_dot(it,ilayer) - &
-                  2.d0*AIMAG(conjg(r_gz(it,ilayer+1))*r_gz(it,ilayer)*Zi*psi_t(ik_sys_hop))*wt(ik)
+                  2.d0*AIMAG(conjg(r_gz(it,ilayer+1))*r_gz(it,ilayer)*Zi*psi_t(ik_sys_hop))*wt(ik)*t_perp
           else
              n_dot(it,ilayer) = n_dot(it,ilayer) - 2.d0*AIMAG(Zi*r_gz(it,ilayer)*conjg(hyb_kR(ilayer)))*wt(ik)
           end if
@@ -275,13 +380,47 @@ CONTAINS
        end do
     end do
 
+    do iL=1,L
+       eSlab(it,iL) = 2.d0*abs(r_gz(it,iL))**2.d0*eSlab_qp(it,iL) + Uz(iL)*doublons(it,iL)
+       if(iL.lt.L) eSlab(it,iL) = eSlab(it,iL) + dreal(hop_plus(it,iL)*conjg(r_gz(it,iL+1))*r_gz(it,iL))
+       if(iL.gt.1) eSlab(it,iL) = eSlab(it,iL) + dreal(hop_plus(it,iL-1)*conjg(r_gz(it,iL))*r_gz(it,iL-1))
+    end do
+    if(it.eq.1) eSlab_init=eSlab(it,:)
+
+
+    dotEnergy(it,:)=0.d0
+    if(it.gt.1) then
+       dotEnergy(it,:)=(eSlab(it,:)-Eold)/dt
+    end if
+    Eold=eSlab(it,:)
+    
+    heat_flux(it,:) = 0.d0
+    do iSlab=2,L
+       do jSlab=1,iSlab-1
+          heat_flux(it,iSlab) =  heat_flux(it,iSlab) - dotEnergy(it,jSlab)
+       end do
+    end do
+
+    de_min=epsik(ik_ord(1))
+    ik_temp=1
+    do ik=1,Nk_tot
+       if(abs(epsik(ik_ord(ik))).lt.abs(de_min).and.(epsik(ik_ord(ik)).lt.-1.d-10)) then
+          de_min=epsik(ik_ord(ik))
+          ik_temp=ik          
+       end if
+    end do
+    !
+    do iSlab=1,L
+       Teff(it,iSlab) = 0.25*de_min/(0.5d0-nk(ik_ord(ik_temp),it,iSlab))
+    end do
+    !
   end subroutine test_obs
 
 
   subroutine print_dynamics(it)
     integer,intent(in) :: it
     integer           :: iL,ik,itau
-    real(8)           :: slab_ene,hyb_ene,kin_ene,int_ene
+    real(8)           :: slab_ene,hyb_ene,kin_ene,int_ene,slab_energy
     real(8)           :: slab_current
     character(len=10) :: fileout
     real(8)           :: t
@@ -289,6 +428,7 @@ CONTAINS
     real(8),dimension(Nk_tot)    :: kx,ky
 
     slab_ene = 0.d0
+    slab_energy=0.d0
     slab_current = 0.d0
     hyb_ene = 0.d0
     kin_ene = 0.d0
@@ -300,10 +440,10 @@ CONTAINS
 
        do iL=1,L-1
 
-          slab_ene     = slab_ene + 2.d0*eSlab(it,iL)*abs(r_gz(it,iL))**2 + U*doublons(it,iL)
-          kin_ene     = kin_ene + 2.d0*eSlab(it,iL)*abs(r_gz(it,iL))**2 
+          slab_energy  = slab_energy + eSlab(it,iL)
+
+          kin_ene     = kin_ene + 2.d0*eSlab_qp(it,iL)*abs(r_gz(it,iL))**2 
           !
-          slab_ene     = slab_ene + 2.d0*dREAL(hop_plus(it,iL)*conjg(r_gz(it,iL+1))*r_gz(it,iL))
           kin_ene     = kin_ene + 2.d0*dREAL(hop_plus(it,iL)*conjg(r_gz(it,iL+1))*r_gz(it,iL))
           !
           int_ene = int_ene + U*doublons(it,iL)
@@ -321,15 +461,16 @@ CONTAINS
                ,0.5-x_gz(it,iL)*0.5              & !3     x(t) ---> check for GZ constraint
                ,n_dot(it,iL)                     & !4     n_dot(i)
                ,eSlab(it,iL)                     & !5     E(i)
-               ,abs(r_gz(it,iL))**2              & !6     |R(i)|^2
-               ,r_gz(it,iL)                      & !7/8   R(i)
-               ,doublons(it,iL)                  & !9     D=<n_up n_dw>(i)
-               ,hop_plus(it,iL)                  & !10/11 d^+_{i+1}d_i 
-               ,conjg(r_gz(it,iL+1))*r_gz(it,iL) & !12/13 R^+(i+1)*R(i)
-               ,eSlab(it,iL)*abs(r_gz(it,iL))**2 & !14
-               ,dreal(hop_plus(it,iL)*conjg(r_gz(it,iL+1))*r_gz(it,iL)) & !15
-               ,hyb_left(it,iL)                  & !16/17 left hybridization                                    
-               ,hyb_right(it,iL)                             !17/18 right hybridization
+               ,eSlab(it,iL)-eSlab_init(iL)      & !6     Delta E(i)
+               ,dotEnergy(it,iL)      & !6     Delta E(i)
+               ,heat_flux(it,iL)      & !6     Delta E(i)
+               ,Teff(it,iL)      & !6     Delta E(i)
+               ,abs(r_gz(it,iL))**2              & !7     |R(i)|^2
+               ,r_gz(it,iL)                      & !8/9   R(i)
+               ,doublons(it,iL)                  & !10     D=<n_up n_dw>(i)
+               ,hop_plus(it,iL)                  & !11/12 d^+_{i+1}d_i 
+               ,hyb_left(it,iL)                  & !13/14 left hybridization                                    
+               ,hyb_right(it,iL)                   !15/16 right hybridization
 
 
           write(500+iL,'(15(F18.10))')           &
@@ -342,8 +483,7 @@ CONTAINS
        end do
 
        iL = L
-
-       slab_ene = slab_ene + 2.d0*eSlab(it,iL)*abs(r_gz(it,iL))**2 + U*doublons(it,iL)
+       slab_energy  = slab_energy + eSlab(it,iL)
        !
        kin_ene = kin_ene + 2.d0*eSlab(it,iL)*abs(r_gz(it,iL))**2
        int_ene = int_ene + U*doublons(it,iL)
@@ -352,31 +492,33 @@ CONTAINS
        hyb_ene  = hyb_ene  + 2.d0*dREAL(hyb_right(it,iL)*conjg(r_gz(it,iL)))
 
 
-       write(200+iL,'(20(F18.10))')              & 
-            t_grid(it)                           & !1     :: current time
-            ,nSlab(it,iL)                        & !2     :: n(t) 
-            ,0.5-x_gz(it,iL)*0.5d0               & !3     ::  x(t) ---> check for GZ constraint
-            ,n_dot(it,iL)                        & !4     ::   n_dot(i)
-            ,eSlab(it,iL)                        & !5     ::    E(i)
-            ,abs(r_gz(it,iL))**2                 & !6     ::    |R(i)|^2
-            ,r_gz(it,iL)                         & !7/8   ::   R(i)
-            ,doublons(it,iL)                     & !9     ::  
-            ,Z0                                  & !10/11 :: d^+_{i+1,i}*R^+(i+1)*R(i)
-            ,Z0                                  & !12/13 :: d^+_{i+1,i}
-            ,eSlab(it,iL)*abs(r_gz(it,iL))**2+U*doublons(it,iL) & !14
-            ,0.d0                             & !15
-            ,hyb_left(it,iL)                     & !16/17 :: left hybridization                                   
-            ,hyb_right(it,iL)                            !17/18 :: left hybridization                                    
+       write(200+iL,'(20(F18.10))')           & 
+            t_grid(it)                        & !1     current time
+            ,nSlab(it,iL)                     & !2     n(t) 
+            ,0.5-x_gz(it,iL)*0.5              & !3     x(t) ---> check for GZ constraint
+            ,n_dot(it,iL)                     & !4     n_dot(i)
+            ,eSlab(it,iL)                     & !5     E(i)
+            ,eSlab(it,iL)-eSlab_init(iL)      & !6     Delta E(i)
+            ,dotEnergy(it,iL)      & !6     Delta E(i)
+            ,heat_flux(it,iL)      & !6     Delta E(i)
+            ,Teff(it,iL)      & !6     Delta E(i)
+            ,abs(r_gz(it,iL))**2              & !7     |R(i)|^2
+            ,r_gz(it,iL)                      & !8/9   R(i)
+            ,doublons(it,iL)                  & !10     D=<n_up n_dw>(i)
+            ,hop_plus(it,iL)                  & !11/12 d^+_{i+1}d_i 
+            ,hyb_left(it,iL)                  & !13/14 left hybridization                                    
+            ,hyb_right(it,iL)                   !15/16 right hybridization
 
 
-       write(500+iL,'(15(F18.10))')              &
-            t_grid(it)                           & !1     current time               
+       write(500+iL,'(15(F18.10))')           &
+            t_grid(it)                        & !1     current time               
             ,doublons(it,iL)                  &
             ,holons(it,iL)                    &
             ,ph_doublons(it,iL)               &
             ,ph_holons(it,iL)
 
        slab_ene = slab_ene/dble(L)
+       slab_energy = slab_energy/dble(L)
        kin_ene = kin_ene/dble(L)
        int_ene = int_ene/dble(L)
        slab_current = slab_current/dble(L)
@@ -386,43 +528,60 @@ CONTAINS
             ,2.d0*dIMAG(hyb_left(it,1)*conjg(r_gz(it,1)))  &
             ,2.d0*dIMAG(hyb_right(it,L)*conjg(r_gz(it,L))) &
             ,slab_current                                  &
-            ,slab_ene                                      &
+            ,slab_energy                                   &
             ,kin_ene                                       &
             ,int_ene                                       &
             ,hyb_ene
+       
+       if(mod(it-1,Nprint_Nk).eq.0) then
+          do iL=1,L
+             if(.not.dos_plane) then
+                do ik=1,Nk_tot
+                   write(700+iL,'(5(F18.10))') epsik(ik_ord(ik)),nk(ik_ord(ik),it,iL),t_grid(it)!,vec_k(ik)%x,vec_k(ik)%y,epsik(ik)
+                end do
+             else
+                do ik=1,Nk_tot
+                   write(700+iL,'(5(F18.10))') ene_dos(ik),nk(ik,it,iL),t_grid(it)
+                end do
+             end if             
+             write(700+iL,*)
+             write(700+iL,*)
+          end do
+       end if
+
+
     else  !3d plots
 
        xSlab = linspace(1.d0,dble(L),L)
 
-
-       call splot3d("density_3d.out",t_grid,xSlab,nSlab)
-       call splot3d("Rgz_3d.out",t_grid,xSlab,r_gz)
-       call splot3d("Zgz_3d.out",t_grid,xSlab,ABS(r_gz)**2)
+       ! call splot3d("density_3d.out",t_grid,xSlab,nSlab)
+       ! call splot3d("Rgz_3d.out",t_grid,xSlab,r_gz)
+       ! call splot3d("Zgz_3d.out",t_grid,xSlab,ABS(r_gz)**2)
        call splot3d("eSlab.out",t_grid,xSlab,eSlab)
 
-       do iL=1,L
-          write(fileout,'(I3.3)') iL
-          open(unit=400+iL,file='nk_'//trim(fileout)//'.out')
-          do itau = 1,Nt
+       forall(it=1:Nt) eSlab(it,:)=eSlab(it,:)-eSlab_init
+       call splot3d("diff_eSlab.out",t_grid,xSlab,eSlab)
+       ! do iL=1,L
+       !    do itau = 1,Nt
 
-             if(mod(itau,20).eq.0) then
+       !       if(mod(itau,20).eq.0) then
 
-                if(.not.dos_plane) then
-                   do ik=1,Nk_tot
-                      write(400+iL,'(5(F18.10))') vec_k(ik)%x,vec_k(ik)%y,nk(ik,itau,iL)
-                   end do
-                else
-                   do ik=1,Nk_tot
-                      write(400+iL,'(5(F18.10))') ene_dos(ik),nk(ik,itau,iL)
-                   end do
-                end if
+       !          if(.not.dos_plane) then
+       !             do ik=1,Nk_tot
+       !                write(400+iL,'(5(F18.10))') vec_k(ik)%x,vec_k(ik)%y,nk(ik,itau,iL)
+       !             end do
+       !          else
+       !             do ik=1,Nk_tot
+       !                write(400+iL,'(5(F18.10))') ene_dos(ik),nk(ik,itau,iL)
+       !             end do
+       !          end if
 
-                write(400+iL,*)
-                write(400+iL,*)
+       !          write(400+iL,*)
+       !          write(400+iL,*)
 
-             end if
-          end do
-       end do
+       !       end if
+       !    end do
+       ! end do
 
     end if
 
@@ -458,6 +617,8 @@ CONTAINS
     type(gz_projector),dimension(:),allocatable :: gz_phi
     real(8),dimension(:),allocatable :: x
     real(8) :: eps_v
+    real(8),dimension(2) :: shift_ek
+    real(8),dimension(3) :: Ak
 
     if(present(psi_in)) then
        if(size(psi_in).ne.size(psi_t)) stop "size psi_in /= psi_t"
@@ -630,12 +791,23 @@ CONTAINS
           muR(it_finer) = 0.d0
        end if
        !
+       open(unit=21,file='pulse_field.out')
        do iSlab=1,L
           Uz_time(iSlab,it_finer) = Uz(iSlab)
+          
+          
+          shift_ek=Avecpot(it_finer)*exp(-dble(iSlab)*0.5d0)
+          if(mod(it_finer,10).eq.0) write(21,'(10F18.10)') t_finer(it_finer),dble(iSlab),shift_ek(1)
+          do ik=1,Nk_tot
+             !here ek_time             
+             ek_time(iSlab,ik,it_finer) = square_lattice_disp(vec_k(ik),shift_ek)
+          end do
        end do
+       if(mod(it_finer,10).eq.0)       write(21,*)
        !
     end do
     close(20)
+    close(21)
   end subroutine initial_condition
 
 

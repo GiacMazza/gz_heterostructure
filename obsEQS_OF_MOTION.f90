@@ -1210,7 +1210,8 @@ CONTAINS
              !+--------------------------------+!
              select case(lead_type)
              case('3d_tb')
-                f(ik_sys) = -Zi*ekl_i*y(ik_sys) - Zi*ek*(t_lead - ABS(gz_R(iSlab))**2)*y(ik_sys) 
+                !f(ik_sys) = -Zi*ekl_i*y(ik_sys) - Zi*ek*(t_lead - ABS(gz_R(iSlab))**2)*y(ik_sys) 
+                f(ik_sys) = -Zi*ekl_i*y(ik_sys) - Zi*ek*t_lead + Zi*ek_time(iSlab,ik,j_time)*ABS(gz_R(iSlab))**2*y(ik_sys) 
              case('generic_bath')
                 f(ik_sys) = -Zi*ekl_i*y(ik_sys) + Zi*ek*ABS(gz_R(iSlab))**2*y(ik_sys) 
              end select
@@ -1256,7 +1257,8 @@ CONTAINS
              !+--------------------------------+!
              select case(lead_type)
              case('3d_tb')
-                f(ik_sys) = -Zi*ekl_i*y(ik_sys) - Zi*ek*(t_lead - ABS(gz_R(iSlab))**2)*y(ik_sys) 
+                !f(ik_sys) = -Zi*ekl_i*y(ik_sys) - Zi*ek*(t_lead - ABS(gz_R(iSlab))**2)*y(ik_sys) 
+                f(ik_sys) = -Zi*ekl_i*y(ik_sys) - Zi*ek*t_lead + Zi*ek_time(iSlab,ik,j_time)*ABS(gz_R(iSlab))**2*y(ik_sys) 
              case('generic_bath')
                 f(ik_sys) = -Zi*ekl_i*y(ik_sys) + Zi*ek*ABS(gz_R(iSlab))**2*y(ik_sys) 
              end select
@@ -1309,19 +1311,18 @@ CONTAINS
              !+-------------------------------+!
              !+- SLAB GF EQUATIONS OF MOTION -+!
              !+-------------------------------+!
-             f(ik_sys) = -Zi*ek*( ABS(gz_R(iSlab))**2 - ABS(gz_R(jSlab))**2 )*GSlab(iSlab,jSlab)    
-             
-             !+- here add the 'dissipation' -+!
+             !f(ik_sys) = -Zi*ek*( ABS(gz_R(iSlab))**2 - ABS(gz_R(jSlab))**2 )*GSlab(iSlab,jSlab)    
+             f(ik_sys) = -Zi*( ek_time(iSlab,ik,j_time)*ABS(gz_R(iSlab))**2 - ek_time(jSlab,ik,j_time)*ABS(gz_R(jSlab))**2 )*GSlab(iSlab,jSlab)    
+             !
+             !+- here add the 'QP~dissipation' -+!
              !f(ik_sys) = f(ik_sys) + k_diss*(1.d0-2.d0*fermi(ek,beta_diss))*( ABS(gz_R(iSlab))**2 - ABS(gz_R(jSlab))**2 )*GSlab(iSlab,jSlab) !
              !
-
-             f(ik_sys) = f(ik_sys) - 2.d0*k_diss*fermi(ek,beta)*GSlab(iSlab,jSlab)!*ABS(gz_R(iSlab))**2
-             f(ik_sys) = f(ik_sys) - 2.d0*k_diss*(1.0-fermi(ek,beta))*GSlab(iSlab,jSlab)!*ABS(gz_R(jSlab))**2
+             f(ik_sys) = f(ik_sys) - 2.d0*k_diss*fermi(ek,beta_diss)*GSlab(iSlab,jSlab)!*ABS(gz_R(iSlab))**2
+             f(ik_sys) = f(ik_sys) - 2.d0*k_diss*(1.0-fermi(ek,beta_diss))*GSlab(iSlab,jSlab)!*ABS(gz_R(jSlab))**2
              if(iSlab.eq.jSlab) then
-                f(ik_sys) = f(ik_sys) - Zi*2.d0*k_diss*(1.0-fermi(ek,beta))!*ABS(gz_R(jSlab))**2
+                f(ik_sys) = f(ik_sys) - Zi*2.d0*k_diss*(1.0-fermi(ek,beta_diss))!*ABS(gz_R(jSlab))**2
              end if
              !
-
              if(iSlab.gt.1) then
                 f(ik_sys) = f(ik_sys) + Zi*conjg(gz_R(iSlab))*gz_R(iSlab-1)*Gslab(iSlab-1,jSlab)*Exp(Zi*phase(iSlab-1))*(-1.*Hslab(iSlab,iSlab-1)) !
              end if
@@ -1365,7 +1366,7 @@ CONTAINS
              hop_plus(iSlab)  = hop_plus(iSlab)-2.d0*Zi*(Gslab(iSlab,iSlab+1))*wt(ik)
              hop_minus(iSlab) = hop_minus(iSlab)-2.d0*Zi*(Gslab(iSlab+1,iSlab))*wt(ik)
           end if
-          hop(iSlab) = hop(iSlab) + 2.d0*(1.d0-Zi*Gslab(iSlab,iSlab))*wt(ik)*ek 
+          hop(iSlab) = hop(iSlab) + 2.d0*(1.d0-Zi*Gslab(iSlab,iSlab))*wt(ik)*ek_time(iSlab,ik,j_time) 
        end do
 
        hyb_left  = hyb_left - 2.d0*Zi*sumGhybL(1)*wt(ik)

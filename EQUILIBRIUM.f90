@@ -229,13 +229,13 @@ CONTAINS
                 do i=1,L
                    H(i,i) =  ek
                    if(i.lt.L) then
-                      H(i,i+1) = -1.d0
-                      H(i+1,i) = -1.d0
+                      H(i,i+1) = -t_perp!1.d0
+                      H(i+1,i) = -t_perp!1.d0
                    end if
                 end do
                 if(pbc) then
-                   H(1,L) = -1.d0
-                   H(L,1) = -1.d0
+                   H(1,L) = -t_perp!1.d0
+                   H(L,1) = -t_perp!1.d0
                 end if
                 call matrix_diagonalize(H,w,jobz,uplo)
                 call get_equilibriumG(ik,Gequ(ik,:,:))

@@ -55,22 +55,23 @@ CONTAINS
   ! routine to build up the k_grid in the 
   ! Reduced Brillouin Zone
   !+------------------------------------------+!
-  SUBROUTINE build_layer_dos(nx,layer_dos_)
+  SUBROUTINE build_layer_dos(nx,wband,layer_dos_)
     integer               :: nx,i
+    real(8)               :: wband
     real(8),dimension(nx) :: dos
-    real(8)               :: wband,dw,x,kint,eint,test
+    real(8)               :: dw,x,kint,eint,test
     character(len=16),optional     :: layer_dos_
     character(len=16)     :: layer_dos
 
-    layer_dos='2d_square'
+    layer_dos='bethe'
     if(present(layer_dos_)) layer_dos=layer_dos_
 
     allocate(wt_dos(nx),ene_dos(nx))
 
     dos=0.d0
     test=0.d0
-    wband=4.d0
-    ene_dos = linspace(-wband,wband,nx,mesh=dw)
+    !wband=4.d0
+    ene_dos = linspace(-wband*0.5,wband*0.5,nx,mesh=dw)
     do i=1,nx
        x=0.5d0*(ene_dos(i)/wband)**2-1.d0
        call comelp(x,kint,eint)
@@ -81,19 +82,25 @@ CONTAINS
        case('flat')
           dos(i)=0.5d0/4.d0*heaviside(4.d0-abs(ene_dos(i)))
        case('bethe')
+          if(ene_dos(i).ge.-wband/2.0.and.ene_dos(i).le.wband/2.0) then
+             dos(i) = 4.d0/Wband/pi*sqrt(1.d0-(2.d0*ene_dos(i)/Wband)**2.d0)
+          else
+             dos(i) = 0.d0
+          end if
           !insert here the bethe lattice dos
        end select
-
+       !
        if(i.eq.nx.or.i.eq.1) then
           wt_dos(i) = dw*0.5d0*dos(i)
        else
           wt_dos(i) = dw*dos(i)
        end if
+       !
        test=test+wt_dos(i)
     enddo
     dos=dos/sum(dos)/dw
     call splot("dos2d.out",ene_dos,dos,wt_dos)
-
+!    write(*,*) test;stop
   END SUBROUTINE build_layer_dos
 
 
@@ -489,11 +496,15 @@ CONTAINS
     return
   END FUNCTION chain_disp
 
-  FUNCTION square_lattice_disp(k)
+  FUNCTION square_lattice_disp(k,shift)
     implicit none
     real(8) :: square_lattice_disp
     type(vec2D) :: k
-    square_lattice_disp = -2*(cos(k%x)+cos(k%y))
+    real(8),dimension(2),optional :: shift
+    real(8),dimension(2)    :: shift_
+    shift_=0.d0
+    if(present(shift)) shift_=shift
+    square_lattice_disp = -2*(cos(k%x-shift_(1))+cos(k%y-shift_(2)))
     return
   END FUNCTION square_lattice_disp
 

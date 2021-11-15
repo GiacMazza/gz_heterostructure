@@ -35,6 +35,16 @@ MODULE global
   real(8),allocatable,dimension(:) :: local_field
   real(8),dimension(:),allocatable :: mu_met,mu_ins  
 
+  !# Electric field #!
+  character(len=16)    :: field_type    !choose the profile of the electric field
+  real(8)              :: Dpulse
+  real(8)              :: Efield        !Electric field strength
+  real(8),dimension(3) :: Evect         !Electric field vectors as input
+  real(8)              :: Ton,Toff      !turn on/off time, t0 also center of the pulse
+  integer              :: Ncycles       !Number of cycles in pulsed light packet
+  real(8)              :: omega0        !parameter for the Oscilatting field and Pulsed light
+  real(8)              :: E1            !Electric field strenght for the AC+DC case (tune to resonate)
+
 
   !hoppings (tslab is the unit of energy)
   real(8)                                     :: t_lead !
@@ -48,7 +58,8 @@ MODULE global
   !Hubbard repulsion
   real(8)                                     :: U
   real(8),dimension(:),allocatable            :: Uz         
-  real(8),dimension(:,:),allocatable          :: Uz_time         
+  real(8),dimension(:,:),allocatable          :: Uz_time
+  real(8),dimension(:,:,:),allocatable          ::   ek_time         
 
 
   !leads chemical potential!
@@ -79,6 +90,7 @@ MODULE global
   !+------------------------------------------------+!
   integer                                     :: nx_grid !nr of points in the x direction
   integer                                     :: Nprint
+  integer                                     :: Nprint_nk
   integer                                     :: Nk_tot  !total nr of k-points
   logical                                     :: off_set !off_set at gamma point
   integer                                     :: Nk_orth !nr of k-points in the z-direction
@@ -92,6 +104,7 @@ MODULE global
   integer                                     :: start_gz      !gz starting projectors
   real(8)                                     :: conv_treshold !convergence treshold
   real(8),dimension(:),allocatable                                     :: epsik
+  integer(8),dimension(:),allocatable         :: ik_ord
 
 
   !+-----------------------+!
@@ -273,9 +286,17 @@ CONTAINS
     call parse_input_variable(dop_layer           ,"DOP_LAYER",INPUTunit,default=dop_layer)  
     call parse_input_variable(beta_left           ,"BETA_L",INPUTunit,default=1000.d0)  
     call parse_input_variable(beta_right           ,"BETA_R",INPUTunit,default=1000.d0)  
-    call parse_input_variable(Nprint           ,"Nprint",INPUTunit,default=1)  
-    call parse_input_variable(k_diss           ,"k_diss",INPUTunit,default=0.d0)  
-    call parse_input_variable(beta_diss           ,"beta_diss",INPUTunit,default=100.d0)  
+    call parse_input_variable(Nprint           ,"Nprint",INPUTunit,default=10)  
+    call parse_input_variable(Nprint_Nk           ,"Nprint_NK",INPUTunit,default=100)  
+
+    !ELECTRIC FIELD VARIABLES
+    call parse_input_variable(field_type,"FIELD_TYPE",INPUTunit,default ='pulse',comment="profile type of the electric field ")
+    call parse_input_variable(Efield,"EFIELD",INPUTunit,default=0d0,comment="electric field strength")
+    call parse_input_variable(Evect,"EVECT",INPUTunit,default=[1d0,0d0,0d0],comment="electric field direction (normalized)")
+    call parse_input_variable(ton,"TON",INPUTunit,default=0d0,comment="turn on time or center of the pulse")
+    call parse_input_variable(toff,"TOFF",INPUTunit,default=10000d0,comment="turn off time")
+    call parse_input_variable(Dpulse,"DPULSE",INPUTunit,default=10.d0,comment="time width of the field pulse")
+    call parse_input_variable(omega0,"OMEGA0",INPUTunit,default=acos(-1d0) , comment="parameter for the Oscilatting field and Pulsed light")
 
 
     ! call parse_cmd_variable(Slab                ,"L")
